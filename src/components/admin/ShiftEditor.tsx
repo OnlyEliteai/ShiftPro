@@ -9,7 +9,7 @@ interface ShiftFormData {
   start_time: string;
   end_time: string;
   model: string;
-  platform: 'telegram' | 'onlyfans' | '';
+  platform: 'telegram' | 'onlyfans' | null;
   status: Shift['status'];
 }
 
@@ -51,7 +51,7 @@ export function ShiftEditor({
     start_time: shift?.start_time ?? '09:00',
     end_time: shift?.end_time ?? '17:00',
     model: shift?.model ?? '',
-    platform: shift?.platform ?? '',
+    platform: shift?.platform ?? null,
     status: shift?.status ?? 'scheduled',
   });
 
@@ -69,7 +69,7 @@ export function ShiftEditor({
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: name === 'platform' && value === '' ? null : value }));
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -210,7 +210,7 @@ export function ShiftEditor({
             <select
               id="platform"
               name="platform"
-              value={form.platform}
+              value={form.platform ?? ''}
               onChange={handleChange}
               className={inputClass}
               required

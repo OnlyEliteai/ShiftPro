@@ -29,7 +29,7 @@ interface ShiftFormData {
   start_time: string;
   end_time: string;
   model: string;
-  platform: 'telegram' | 'onlyfans' | '';
+  platform: 'telegram' | 'onlyfans' | null;
   status: Shift['status'];
 }
 
