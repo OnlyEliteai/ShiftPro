@@ -48,7 +48,7 @@ type Tab =
 
 export function AdminPage() {
   const navigate = useNavigate();
-  const { user, loading: authLoading, signOut } = useAdminAuth();
+  const { user, profile, loading: authLoading, signOut } = useAdminAuth();
   const { shifts, createShift, updateShift, deleteShift } = useShifts();
   const { chatters, createChatter, updateChatter, deleteChatter, toggleActive } = useChatters();
   const { stats, loading: analyticsLoading } = useAnalytics();
@@ -244,6 +244,7 @@ export function AdminPage() {
         onTabChange={(tab) => setActiveTab(tab as Tab)}
         onLogout={handleLogout}
         errorCount={unresolvedErrorCount}
+        adminName={profile?.display_name ?? profile?.email ?? null}
       >
         {renderContent()}
       </AdminLayout>

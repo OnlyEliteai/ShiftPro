@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useChatterAuth } from '../hooks/useChatterAuth';
 import { useToast } from '../hooks/useToast';
 import { ChatterLayout } from '../components/chatter/ChatterLayout';
@@ -9,9 +11,22 @@ import { LABELS } from '../lib/utils';
 import { AlertCircle } from 'lucide-react';
 
 export function ChatterPage() {
-  const { chatter, shifts, availableShifts, loading, error, token, refetch } =
+  const navigate = useNavigate();
+  const { chatter, shifts, availableShifts, loading, error, token, refetch, logout } =
     useChatterAuth();
   const { toasts, dismissToast } = useToast();
+
+  // If no auth at all, redirect to login
+  useEffect(() => {
+    if (!loading && error === 'NO_AUTH') {
+      navigate('/login', { replace: true });
+    }
+  }, [loading, error, navigate]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   const handleRefetch = async () => {
     await refetch();
@@ -25,6 +40,11 @@ export function ChatterPage() {
     );
   }
 
+  if (error === 'NO_AUTH') {
+    // Will redirect via useEffect above
+    return null;
+  }
+
   if (error || !chatter) {
     return (
       <div
@@ -36,11 +56,12 @@ export function ChatterPage() {
           <p className="text-red-400 text-sm">
             {error ?? 'לא ניתן לאמת את הקישור'}
           </p>
-          {!token && (
-            <p className="text-gray-500 text-xs">
-              נא לפתוח את הקישור האישי שנשלח אליך
-            </p>
-          )}
+          <button
+            onClick={() => navigate('/login', { replace: true })}
+            className="text-blue-400 hover:text-blue-300 text-sm underline"
+          >
+            חזרה לכניסה
+          </button>
         </div>
       </div>
     );
@@ -48,7 +69,7 @@ export function ChatterPage() {
 
   return (
     <>
-      <ChatterLayout chatterName={chatter.name}>
+      <ChatterLayout chatterName={chatter.name} onLogout={handleLogout}>
         {/* My Shifts */}
         <div className="mb-4">
           <h2 className="text-lg font-bold text-white">המשמרות שלי</h2>

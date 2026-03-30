@@ -1,13 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, SUPABASE_URL } from '../lib/supabase';
-import type { Chatter, Shift } from '../lib/types';
+import type { Shift, ChatterSession } from '../lib/types';
+
+const SESSION_KEY = 'shiftpro-chatter-session';
+const SESSION_MAX_AGE = 12 * 60 * 60 * 1000; // 12 hours
 
 interface ChatterAuthState {
-  chatter: Pick<Chatter, 'id' | 'name'> | null;
+  chatter: { id: string; name: string } | null;
   shifts: Shift[];
   availableShifts: Shift[];
   loading: boolean;
   error: string | null;
+}
+
+function getStoredSession(): ChatterSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const session: ChatterSession = JSON.parse(raw);
+    if (Date.now() - session.loggedInAt > SESSION_MAX_AGE) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return session;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+}
+
+function saveSession(session: ChatterSession) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export function useChatterAuth() {
@@ -19,24 +46,34 @@ export function useChatterAuth() {
     error: null,
   });
 
-  // Read token once from the URL — it never changes during the page lifecycle
+  // Read token from URL (one-time)
   const tokenRef = useRef(
     new URLSearchParams(window.location.search).get('token') ?? ''
   );
-  const token = tokenRef.current;
 
-  // Strip token from URL to prevent referrer leakage (run once)
+  // Resolve the token: URL token > localStorage session
+  const resolvedTokenRef = useRef('');
+
   useEffect(() => {
-    if (token) {
+    const urlToken = tokenRef.current;
+    const stored = getStoredSession();
+
+    if (urlToken) {
+      // URL token takes priority — save to localStorage and strip from URL
+      resolvedTokenRef.current = urlToken;
+      // We'll save the full session after we fetch data and confirm the token is valid
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
       window.history.replaceState({}, '', url.toString());
+    } else if (stored) {
+      resolvedTokenRef.current = stored.token;
     }
-  }, [token]);
+  }, []);
 
   const fetchData = useCallback(async () => {
+    const token = resolvedTokenRef.current;
     if (!token) {
-      setState({ chatter: null, shifts: [], availableShifts: [], loading: false, error: 'Missing token' });
+      setState({ chatter: null, shifts: [], availableShifts: [], loading: false, error: 'NO_AUTH' });
       return;
     }
 
@@ -49,6 +86,7 @@ export function useChatterAuth() {
       const json = await res.json();
 
       if (!res.ok || json.success === false) {
+        clearSession();
         setState({
           chatter: null,
           shifts: [],
@@ -60,8 +98,18 @@ export function useChatterAuth() {
       }
 
       const payload = json.data ?? json;
+      const chatter = { id: payload.chatter.id, name: payload.chatter.name };
+
+      // Save/refresh session in localStorage
+      saveSession({
+        chatterId: chatter.id,
+        chatterName: chatter.name,
+        token,
+        loggedInAt: Date.now(),
+      });
+
       setState({
-        chatter: { id: payload.chatter.id, name: payload.chatter.name },
+        chatter,
         shifts: payload.shifts ?? [],
         availableShifts: payload.available_shifts ?? [],
         loading: false,
@@ -76,7 +124,7 @@ export function useChatterAuth() {
         error: 'Unable to connect to server. Please try again.',
       });
     }
-  }, [token]);
+  }, []);
 
   // Initial fetch
   useEffect(() => {
@@ -93,8 +141,6 @@ export function useChatterAuth() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shifts' },
         () => {
-          // Refetch all data when any shift changes — keeps both
-          // my_shifts and available_shifts in sync
           fetchData();
         }
       )
@@ -105,6 +151,14 @@ export function useChatterAuth() {
     };
   }, [state.chatter, fetchData]);
 
+  const logout = useCallback(() => {
+    clearSession();
+    resolvedTokenRef.current = '';
+    setState({ chatter: null, shifts: [], availableShifts: [], loading: false, error: 'NO_AUTH' });
+  }, []);
+
+  const token = resolvedTokenRef.current;
+
   return {
     chatter: state.chatter,
     shifts: state.shifts,
@@ -113,5 +167,6 @@ export function useChatterAuth() {
     error: state.error,
     token,
     refetch: fetchData,
+    logout,
   };
 }

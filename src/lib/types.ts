@@ -66,6 +66,21 @@ export interface ErrorLog {
   resolved_at: string | null;
 }
 
+export interface Profile {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: 'admin' | 'chatter';
+  created_at: string;
+}
+
+export interface ChatterSession {
+  chatterId: string;
+  chatterName: string;
+  token: string;
+  loggedInAt: number;
+}
+
 export interface Model {
   id: string;
   name: string;
