@@ -9,10 +9,10 @@ interface ChatterLayoutProps {
 
 export function ChatterLayout({ chatterName, onLogout, children }: ChatterLayoutProps) {
   return (
-    <div className="min-h-screen bg-gray-950 text-white" dir="rtl">
+    <div className="min-h-screen bg-gray-950 text-white">
       {/* Header */}
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 sticky top-0 z-10">
-        <div className="max-w-md mx-auto flex items-center justify-between">
+        <div className="max-w-md sm:max-w-lg lg:max-w-xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-400">{chatterName}</span>
             {onLogout && (
@@ -30,7 +30,7 @@ export function ChatterLayout({ chatterName, onLogout, children }: ChatterLayout
       </header>
 
       {/* Content */}
-      <main className="max-w-md mx-auto px-4 py-6">
+      <main className="max-w-md sm:max-w-lg lg:max-w-xl mx-auto px-4 py-6">
         {children}
       </main>
     </div>

@@ -110,7 +110,6 @@ export function ShiftEditor({
     /* Overlay */
     <div
       className="fixed inset-0 z-50 flex items-end lg:items-center justify-center bg-black/70 backdrop-blur-sm lg:p-4"
-      dir="rtl"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

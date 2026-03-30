@@ -57,7 +57,7 @@ export function ReminderLog() {
       .limit(50);
 
     if (err) {
-      setError('שגיאה בטעינת לוג תזכורות');
+      setError(LABELS.reminderLogError);
     } else {
       setRows((data as ReminderRow[]) ?? []);
     }
@@ -69,12 +69,12 @@ export function ReminderLog() {
   }, [fetchLogs]);
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white">{LABELS.reminders}</h2>
-          <p className="text-sm text-gray-400 mt-1">היסטוריית תזכורות SMS (50 אחרונות)</p>
+          <p className="text-sm text-gray-400 mt-1">{LABELS.reminderLogSubtitle}</p>
         </div>
         <button
           onClick={fetchLogs}
@@ -82,7 +82,7 @@ export function ReminderLog() {
           className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-sm rounded-lg transition-colors border border-gray-700"
         >
           <RefreshCw size={15} className={cn(loading && 'animate-spin')} />
-          רענן
+          {LABELS.refresh}
         </button>
       </div>
 
@@ -93,7 +93,7 @@ export function ReminderLog() {
       ) : rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-500 gap-3">
           <Bell size={32} className="opacity-40" />
-          <p>אין תזכורות בלוג</p>
+          <p>{LABELS.noRemindersInLog}</p>
         </div>
       ) : (
         <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">

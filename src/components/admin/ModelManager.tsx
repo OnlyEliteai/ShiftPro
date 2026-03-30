@@ -53,7 +53,7 @@ export function ModelManager({
   }
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-6">
       <h2 className="text-2xl font-bold text-white mb-6">{LABELS.models}</h2>
 
       {/* Add model form */}
@@ -62,7 +62,7 @@ export function ModelManager({
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder="שם המודל"
+          placeholder={LABELS.modelNameLabel}
           className="flex-1 max-w-xs bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
         />
         <button
@@ -82,7 +82,7 @@ export function ModelManager({
 
       {/* Models list */}
       {models.length === 0 ? (
-        <p className="text-gray-500 text-sm">אין מודלים עדיין. הוסף מודל חדש.</p>
+        <p className="text-gray-500 text-sm">{LABELS.noModelsYet}</p>
       ) : (
         <div className="space-y-2">
           {models.map((model) => (
@@ -100,7 +100,7 @@ export function ModelManager({
                 </span>
                 {!model.active && (
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-600/30 text-gray-400">
-                    לא פעיל
+                    {LABELS.inactive}
                   </span>
                 )}
               </div>
@@ -110,7 +110,7 @@ export function ModelManager({
                 <button
                   onClick={() => handleToggle(model.id, model.active)}
                   className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-                  title={model.active ? 'השבת' : 'הפעל'}
+                  title={model.active ? LABELS.disable : LABELS.enable}
                 >
                   {model.active ? (
                     <ToggleRight size={20} className="text-green-400" />
@@ -126,7 +126,7 @@ export function ModelManager({
                       onClick={() => handleDelete(model.id)}
                       className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white text-xs rounded-md font-medium transition-colors"
                     >
-                      מחק
+                      {LABELS.delete}
                     </button>
                     <button
                       onClick={() => setDeletingId(null)}

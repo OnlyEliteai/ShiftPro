@@ -65,6 +65,7 @@ export function useShifts(): UseShiftsReturn {
               });
             }
           })
+          // Realtime handlers are not user-initiated; logging is sufficient.
           .then(undefined, console.error);
         return;
       }
@@ -82,6 +83,7 @@ export function useShifts(): UseShiftsReturn {
               );
             }
           })
+          // Realtime handlers are not user-initiated; logging is sufficient.
           .then(undefined, console.error);
         return;
       }
@@ -95,8 +97,9 @@ export function useShifts(): UseShiftsReturn {
 
   // Subscribe to realtime changes with auto-reconnect
   useEffect(() => {
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 10;
     const BASE_DELAY_MS = 3000;
+    const MAX_DELAY_MS = 60_000; // 1 minute cap on backoff
 
     const subscribe = () => {
       const channel = supabase
@@ -109,7 +112,10 @@ export function useShifts(): UseShiftsReturn {
         .subscribe((status) => {
           if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
             if (retryCountRef.current < MAX_RETRIES) {
-              const delay = BASE_DELAY_MS * Math.pow(2, retryCountRef.current);
+              const delay = Math.min(
+                BASE_DELAY_MS * Math.pow(2, retryCountRef.current),
+                MAX_DELAY_MS
+              );
               retryCountRef.current += 1;
               setTimeout(subscribe, delay);
             }

@@ -49,18 +49,17 @@ export function ChatterPage() {
     return (
       <div
         className="min-h-screen bg-gray-950 flex items-center justify-center px-4"
-        dir="rtl"
       >
         <div className="max-w-sm w-full text-center space-y-3">
           <AlertCircle size={40} className="text-red-500 mx-auto" />
           <p className="text-red-400 text-sm">
-            {error ?? 'לא ניתן לאמת את הקישור'}
+            {error ?? LABELS.cannotVerifyLink}
           </p>
           <button
             onClick={() => navigate('/login', { replace: true })}
             className="text-blue-400 hover:text-blue-300 text-sm underline"
           >
-            חזרה לכניסה
+            {LABELS.backToLogin}
           </button>
         </div>
       </div>
@@ -72,7 +71,7 @@ export function ChatterPage() {
       <ChatterLayout chatterName={chatter.name} onLogout={handleLogout}>
         {/* My Shifts */}
         <div className="mb-4">
-          <h2 className="text-lg font-bold text-white">המשמרות שלי</h2>
+          <h2 className="text-lg font-bold text-white">{LABELS.myShifts}</h2>
           <p className="text-xs text-gray-400 mt-0.5">
             {LABELS.scheduled} · {LABELS.active} · {LABELS.completed}
           </p>
@@ -88,7 +87,7 @@ export function ChatterPage() {
         <div className="mt-10 mb-4">
           <h2 className="text-lg font-bold text-white">{LABELS.availableShifts}</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            משמרות פתוחות להרשמה
+            {LABELS.openShiftsForSignup}
           </p>
         </div>
 

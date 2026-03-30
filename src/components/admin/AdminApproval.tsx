@@ -27,6 +27,7 @@ export function AdminApproval({ models }: AdminApprovalProps) {
     Record<string, { modelId: string; platform: string }>
   >({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchPending = useCallback(async () => {
     const { data, error } = await supabase
@@ -82,7 +83,11 @@ export function AdminApproval({ models }: AdminApprovalProps) {
     if (!sel?.modelId || !sel?.platform) return;
 
     const model = models.find((m) => m.id === sel.modelId);
-    if (!model) return;
+    if (!model) {
+      setError(LABELS.modelNotFound);
+      return;
+    }
+    setError(null);
 
     setActionLoading(shiftId);
     const { error } = await supabase
@@ -134,20 +139,24 @@ export function AdminApproval({ models }: AdminApprovalProps) {
   }
 
   return (
-    <div className="p-4 sm:p-6" dir="rtl">
+    <div className="p-4 sm:p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{LABELS.adminApproval}</h2>
         <p className="text-sm text-gray-400 mt-1">
           {pendingShifts.length > 0
-            ? `${pendingShifts.length} משמרות ממתינות לאישור`
-            : 'אין משמרות ממתינות'}
+            ? `${pendingShifts.length} ${LABELS.pendingShiftsCount}`
+            : LABELS.noPendingShifts}
         </p>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-400 mb-4">{error}</p>
+      )}
 
       {pendingShifts.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
           <Inbox size={40} className="text-gray-600" />
-          <p className="text-gray-400 text-sm">אין משמרות ממתינות לאישור</p>
+          <p className="text-gray-400 text-sm">{LABELS.noPendingShiftsForApproval}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -165,7 +174,7 @@ export function AdminApproval({ models }: AdminApprovalProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      {shift.chatters?.name ?? 'לא ידוע'}
+                      {shift.chatters?.name ?? LABELS.unknown}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {formatDate(shift.date)}

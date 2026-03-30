@@ -1,11 +1,10 @@
 import { ChevronRight, ChevronLeft, Plus } from 'lucide-react';
-import type { Chatter, Shift, ShiftWithChatter } from '../../lib/types';
+import type { Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, getPlatformBadge, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
-  chatters: Chatter[];
   weekOffset: number;
   onWeekChange: (offset: number) => void;
   onAddShift: (date: string) => void;
@@ -14,7 +13,6 @@ interface WeeklyGridProps {
 
 export function WeeklyGrid({
   shifts,
-  chatters: _chatters,
   weekOffset,
   onWeekChange,
   onAddShift,
@@ -40,7 +38,7 @@ export function WeeklyGrid({
   }
 
   return (
-    <div className="p-4 sm:p-6" dir="rtl">
+    <div className="p-4 sm:p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">{LABELS.schedule}</h2>

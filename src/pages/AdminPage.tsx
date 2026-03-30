@@ -19,7 +19,7 @@ import { ErrorLog } from '../components/admin/ErrorLog';
 import { Analytics } from '../components/admin/Analytics';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
-import type { Shift, ShiftWithChatter, Chatter } from '../lib/types';
+import type { Shift, ShiftWithChatter } from '../lib/types';
 
 // ─── Form data type that ShiftEditor returns via onSave ───────────────────────
 
@@ -51,7 +51,7 @@ export function AdminPage() {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading, signOut } = useAdminAuth();
   const { shifts, createShift, updateShift, deleteShift } = useShifts();
-  const { chatters, createChatter, updateChatter, deleteChatter, toggleActive } = useChatters();
+  const { chatters, createChatter, deleteChatter, toggleActive } = useChatters();
   const { stats, loading: analyticsLoading } = useAnalytics();
   const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
@@ -172,15 +172,6 @@ export function AdminPage() {
     [createChatter, showToast]
   );
 
-  const handleUpdateChatter = useCallback(
-    (id: string, data: Partial<Chatter>) => {
-      updateChatter(id, data).then(({ error }) => {
-        if (error) showToast('error', error);
-      });
-    },
-    [updateChatter, showToast]
-  );
-
   const handleDeleteChatter = useCallback(
     (id: string) => {
       deleteChatter(id).then(({ error }) => {
@@ -222,7 +213,6 @@ export function AdminPage() {
         return (
           <WeeklyGrid
             shifts={shifts as ShiftWithChatter[]}
-            chatters={chatters}
             weekOffset={weekOffset}
             onWeekChange={setWeekOffset}
             onAddShift={openAddShift}
@@ -238,7 +228,6 @@ export function AdminPage() {
           <ChatterManager
             chatters={chatters}
             onAdd={handleAddChatter}
-            onUpdate={handleUpdateChatter}
             onDelete={handleDeleteChatter}
             onToggleActive={handleToggleActive}
           />

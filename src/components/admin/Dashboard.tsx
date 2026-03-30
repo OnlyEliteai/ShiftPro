@@ -48,7 +48,7 @@ export function Dashboard({ stats }: DashboardProps) {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
           </span>
-          פעיל
+          {LABELS.active}
         </span>
       ),
     },
@@ -89,10 +89,10 @@ export function Dashboard({ stats }: DashboardProps) {
   ];
 
   return (
-    <div className="p-4 sm:p-6" dir="rtl">
+    <div className="p-4 sm:p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{LABELS.dashboard}</h2>
-        <p className="text-sm text-gray-400 mt-1">סקירה כללית של מצב המשמרות</p>
+        <p className="text-sm text-gray-400 mt-1">{LABELS.overviewSubtitle}</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

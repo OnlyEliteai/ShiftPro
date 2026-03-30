@@ -5,17 +5,26 @@ import { ChatterPage } from './pages/ChatterPage';
 
 function RootRedirect() {
   // Check for chatter session in localStorage
-  try {
-    const raw = localStorage.getItem('shiftpro-chatter-session');
-    if (raw) {
+  const raw = localStorage.getItem('shiftpro-chatter-session');
+  if (raw) {
+    try {
       const session = JSON.parse(raw);
-      const maxAge = 12 * 60 * 60 * 1000;
-      if (Date.now() - session.loggedInAt < maxAge) {
-        return <Navigate to="/shift" replace />;
+      // Validate required fields exist and have correct types
+      if (
+        session &&
+        typeof session.chatterId === 'string' &&
+        typeof session.loggedInAt === 'number'
+      ) {
+        const maxAge = 12 * 60 * 60 * 1000;
+        if (Date.now() - session.loggedInAt < maxAge) {
+          return <Navigate to="/shift" replace />;
+        }
       }
+      // Invalid or expired session — clean up
+      localStorage.removeItem('shiftpro-chatter-session');
+    } catch {
+      localStorage.removeItem('shiftpro-chatter-session');
     }
-  } catch {
-    // ignore
   }
 
   // No chatter session — try admin (Supabase auth state is async,

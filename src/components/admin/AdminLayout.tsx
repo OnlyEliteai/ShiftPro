@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LayoutDashboard,
   Calendar,
@@ -42,7 +42,7 @@ export function AdminLayout({
 }: AdminLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems: NavItem[] = [
+  const navItems: NavItem[] = useMemo(() => [
     {
       id: 'dashboard',
       label: LABELS.dashboard,
@@ -85,10 +85,10 @@ export function AdminLayout({
       label: LABELS.analytics,
       icon: <BarChart3 size={20} />,
     },
-  ];
+  ], [pendingCount, errorCount]);
 
   // Bottom nav shows a subset of important items on mobile
-  const bottomNavItems = navItems.slice(0, 5);
+  const bottomNavItems = useMemo(() => navItems.slice(0, 5), [navItems]);
 
   const handleTabChange = (tab: string) => {
     onTabChange(tab);
@@ -96,7 +96,7 @@ export function AdminLayout({
   };
 
   return (
-    <div className="flex h-screen bg-gray-950 text-white overflow-hidden" dir="rtl">
+    <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden lg:flex flex-col w-64 bg-gray-900 border-l border-gray-800 shrink-0">
         {/* Logo / Brand */}
@@ -213,7 +213,7 @@ export function AdminLayout({
       )}
 
       {/* Mobile Bottom Nav */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-900 border-t border-gray-800 flex">
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-900 border-t border-gray-800 flex pb-[env(safe-area-inset-bottom)]">
         {bottomNavItems.map((item) => {
           const isActive = activeTab === item.id;
           return (

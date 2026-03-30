@@ -47,7 +47,7 @@ export function LoginPage() {
 
     const trimmed = chatterName.trim();
     if (!trimmed) {
-      setError('נא להזין שם');
+      setError(LABELS.enterName);
       return;
     }
 
@@ -64,7 +64,7 @@ export function LoginPage() {
     setSubmitting(false);
 
     if (!result.success || !result.data) {
-      setError(result.error ?? 'הצ\'אטר לא נמצא במערכת. פנה למנהל.');
+      setError(result.error ?? LABELS.chatterNotFound);
       return;
     }
 
@@ -88,7 +88,6 @@ export function LoginPage() {
   return (
     <div
       className="min-h-screen bg-gray-950 flex items-center justify-center px-4"
-      dir="rtl"
     >
       <div className="w-full max-w-sm">
         {/* Logo / title */}
@@ -111,7 +110,7 @@ export function LoginPage() {
               }`}
             >
               <User size={14} className="inline-block ml-1.5 -mt-0.5" />
-              כניסת צ׳אטר
+              {LABELS.chatterLogin}
             </button>
             <button
               type="button"
@@ -123,7 +122,7 @@ export function LoginPage() {
               }`}
             >
               <LogIn size={14} className="inline-block ml-1.5 -mt-0.5" />
-              כניסת מנהל
+              {LABELS.adminLogin}
             </button>
           </div>
 

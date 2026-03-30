@@ -75,7 +75,7 @@ export function ErrorLog() {
   const unresolvedCount = rows.filter((r) => !r.resolved).length;
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

@@ -73,7 +73,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
     });
     setLoading(false);
     if (!result.success) {
-      setError(result.error ?? 'שגיאה בכניסה למשמרת');
+      setError(result.error ?? LABELS.clockInError);
     } else {
       onUpdate();
     }
@@ -88,7 +88,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
     });
     setLoading(false);
     if (!result.success) {
-      setError(result.error ?? 'שגיאה ביציאה מהמשמרת');
+      setError(result.error ?? LABELS.clockOutError);
     } else {
       onUpdate();
     }
@@ -155,7 +155,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
         {!isAvailable && <StatusBadge status={shift.status} />}
         {isAvailable && (
           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">
-            פנויה
+            {LABELS.available}
           </span>
         )}
       </div>
@@ -206,7 +206,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
             </span>
-            <span>פעיל כבר {duration}</span>
+            <span>{LABELS.activeFor} {duration}</span>
           </div>
           <button
             onClick={handleClockOut}
