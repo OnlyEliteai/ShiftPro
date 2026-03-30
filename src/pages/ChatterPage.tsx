@@ -11,7 +11,7 @@ import { AlertCircle } from 'lucide-react';
 export function ChatterPage() {
   const { chatter, shifts, availableShifts, loading, error, token, refetch } =
     useChatterAuth();
-  const { toasts, showToast, dismissToast } = useToast();
+  const { toasts, dismissToast } = useToast();
 
   const handleRefetch = async () => {
     await refetch();

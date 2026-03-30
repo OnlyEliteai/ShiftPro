@@ -65,7 +65,7 @@ export function useAnalytics(): UseAnalyticsReturn {
     // Group by chatter
     const map = new Map<string, { name: string; completed: number; missed: number }>();
 
-    for (const row of data as Array<{
+    for (const row of data as unknown as Array<{
       chatter_id: string;
       status: string;
       chatters: { name: string } | null;
@@ -118,7 +118,7 @@ export function useAnalytics(): UseAnalyticsReturn {
 
     const map = new Map<string, { name: string; count: number }>();
 
-    for (const row of data as Array<{
+    for (const row of data as unknown as Array<{
       chatter_id: string;
       chatters: { name: string } | null;
     }>) {

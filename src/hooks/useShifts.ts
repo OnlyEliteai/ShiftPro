@@ -65,7 +65,7 @@ export function useShifts(): UseShiftsReturn {
               });
             }
           })
-          .catch(console.error);
+          .then(undefined, console.error);
         return;
       }
 
@@ -82,7 +82,7 @@ export function useShifts(): UseShiftsReturn {
               );
             }
           })
-          .catch(console.error);
+          .then(undefined, console.error);
         return;
       }
 

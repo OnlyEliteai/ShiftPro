@@ -1,6 +1,6 @@
 import { ChevronRight, ChevronLeft, Plus } from 'lucide-react';
 import type { Chatter, Shift, ShiftWithChatter } from '../../lib/types';
-import { LABELS, formatTime, getWeekDates, getStatusColor, cn } from '../../lib/utils';
+import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 
 interface WeeklyGridProps {

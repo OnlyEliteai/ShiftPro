@@ -174,7 +174,7 @@ export function Analytics() {
           <div className="flex items-center gap-8">
             <ResponsiveContainer width="50%" height={250}>
               <PieChart>
-                <Pie data={modelCoverage} dataKey="count" nameKey="model" cx="50%" cy="50%" outerRadius={80} label={({ model }) => model}>
+                <Pie data={modelCoverage} dataKey="count" nameKey="model" cx="50%" cy="50%" outerRadius={80} label={({ name }) => name}>
                   {modelCoverage.map((_, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}

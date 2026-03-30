@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import type { Chatter, Shift } from '../../lib/types';
-import { LABELS, cn } from '../../lib/utils';
+import { LABELS } from '../../lib/utils';
 
 interface ShiftFormData {
   chatter_id: string;
