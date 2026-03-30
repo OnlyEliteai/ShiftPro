@@ -6,13 +6,14 @@ import { useChatters } from '../hooks/useChatters';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useModels } from '../hooks/useModels';
 import { useToast } from '../hooks/useToast';
+import { supabase } from '../lib/supabase';
 import { AdminLayout } from '../components/admin/AdminLayout';
 import { Dashboard } from '../components/admin/Dashboard';
 import { WeeklyGrid } from '../components/admin/WeeklyGrid';
 import { ShiftEditor } from '../components/admin/ShiftEditor';
 import { ChatterManager } from '../components/admin/ChatterManager';
 import { ModelManager } from '../components/admin/ModelManager';
-import { TemplateManager } from '../components/admin/TemplateManager';
+import { AdminApproval } from '../components/admin/AdminApproval';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
 import { Analytics } from '../components/admin/Analytics';
@@ -37,8 +38,8 @@ interface ShiftFormData {
 type Tab =
   | 'dashboard'
   | 'schedule'
+  | 'approval'
   | 'chatters'
-  | 'templates'
   | 'models'
   | 'reminders'
   | 'errors'
@@ -63,8 +64,39 @@ export function AdminPage() {
   const [editorDate, setEditorDate] = useState<string | undefined>(undefined);
   const [showEditor, setShowEditor] = useState(false);
 
+  // Pending count for approval badge
+  const [pendingCount, setPendingCount] = useState(0);
+
   // Unresolved error count for badge
-  const unresolvedErrorCount = 0; // updated dynamically by ErrorLog internally; start at 0
+  const unresolvedErrorCount = 0;
+
+  // Fetch pending count
+  useEffect(() => {
+    async function fetchPendingCount() {
+      const { count } = await supabase
+        .from('shifts')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      setPendingCount(count ?? 0);
+    }
+    fetchPendingCount();
+
+    // Realtime: update pending count when shifts change
+    const channel = supabase
+      .channel('pending-count')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shifts' },
+        () => {
+          fetchPendingCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -131,7 +163,6 @@ export function AdminPage() {
 
   // ── Chatter callbacks ───────────────────────────────────────────────────────
 
-  // ChatterManager uses sync callbacks — fire-and-forget with toast feedback
   const handleAddChatter = useCallback(
     (name: string, phone: string) => {
       createChatter(name, phone).then(({ error }) => {
@@ -199,6 +230,9 @@ export function AdminPage() {
           />
         );
 
+      case 'approval':
+        return <AdminApproval models={models.filter((m) => m.active)} />;
+
       case 'chatters':
         return (
           <ChatterManager
@@ -209,9 +243,6 @@ export function AdminPage() {
             onToggleActive={handleToggleActive}
           />
         );
-
-      case 'templates':
-        return <TemplateManager chatters={chatters} />;
 
       case 'models':
         return (
@@ -244,6 +275,7 @@ export function AdminPage() {
         onTabChange={(tab) => setActiveTab(tab as Tab)}
         onLogout={handleLogout}
         errorCount={unresolvedErrorCount}
+        pendingCount={pendingCount}
         adminName={profile?.display_name ?? profile?.email ?? null}
       >
         {renderContent()}

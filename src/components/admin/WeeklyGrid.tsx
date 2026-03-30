@@ -40,7 +40,7 @@ export function WeeklyGrid({
   }
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-4 sm:p-6" dir="rtl">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">{LABELS.schedule}</h2>
@@ -78,7 +78,8 @@ export function WeeklyGrid({
       </div>
 
       {/* Grid */}
-      <div className="grid grid-cols-7 gap-2">
+      <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+      <div className="grid grid-cols-7 gap-2 min-w-[700px]">
         {/* Day headers */}
         {weekDates.map((date, i) => (
           <div
@@ -133,6 +134,10 @@ export function WeeklyGrid({
                     ? 'bg-red-900/40'
                     : shift.status === 'completed'
                     ? 'bg-gray-700/60'
+                    : shift.status === 'pending'
+                    ? 'bg-yellow-900/40'
+                    : shift.status === 'rejected'
+                    ? 'bg-red-950/40 opacity-50'
                     : 'bg-blue-900/40'
                 )}
               >
@@ -178,6 +183,7 @@ export function WeeklyGrid({
             </div>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );

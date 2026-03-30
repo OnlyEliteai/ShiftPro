@@ -109,6 +109,8 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
     }
   }, [token, shift.id, onUpdate]);
 
+  const isPending = shift.status === 'pending';
+  const isRejected = shift.status === 'rejected';
   const isScheduled = shift.status === 'scheduled';
   const isActive = shift.status === 'active';
   const isCompleted = shift.status === 'completed';
@@ -123,6 +125,10 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
           ? 'border-purple-500/30 hover:border-purple-400/50'
           : isActive
           ? 'border-green-500/40 shadow-md shadow-green-900/20'
+          : isPending
+          ? 'border-yellow-500/30'
+          : isRejected
+          ? 'border-red-700/30 opacity-60'
           : isMissed
           ? 'border-red-500/20'
           : 'border-gray-700/50 hover:border-gray-600'
@@ -167,7 +173,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
         <button
           onClick={handleSignUp}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+          className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium min-h-[48px] py-2 px-4 rounded-lg transition-colors"
         >
           <UserPlus size={16} />
           {loading ? '...' : LABELS.signUp}
@@ -184,7 +190,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
           <button
             onClick={handleClockIn}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium min-h-[48px] py-2 px-4 rounded-lg transition-colors"
           >
             <LogIn size={16} />
             {loading ? '...' : LABELS.clockIn}
@@ -205,7 +211,7 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
           <button
             onClick={handleClockOut}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium min-h-[48px] py-2 px-4 rounded-lg transition-colors"
           >
             <LogOut size={16} />
             {loading ? '...' : LABELS.clockOut}
@@ -230,6 +236,22 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
         <div className="flex items-center gap-1.5 text-red-400 text-xs">
           <XCircle size={14} />
           <span>{LABELS.missed}</span>
+        </div>
+      )}
+
+      {/* Pending */}
+      {!isAvailable && isPending && (
+        <div className="flex items-center gap-1.5 text-yellow-400 text-xs">
+          <Clock size={14} className="text-yellow-500" />
+          <span>{LABELS.pendingApproval}</span>
+        </div>
+      )}
+
+      {/* Rejected */}
+      {isRejected && (
+        <div className="flex items-center gap-1.5 text-red-500 text-xs">
+          <XCircle size={14} />
+          <span>{LABELS.rejected}</span>
         </div>
       )}
 

@@ -104,7 +104,7 @@ export function LoginPage() {
             <button
               type="button"
               onClick={() => switchTab('chatter')}
-              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+              className={`flex-1 min-h-[48px] py-3 text-sm font-medium transition-colors ${
                 activeTab === 'chatter'
                   ? 'text-white bg-gray-800/50 border-b-2 border-blue-500'
                   : 'text-gray-400 hover:text-gray-300'
@@ -116,7 +116,7 @@ export function LoginPage() {
             <button
               type="button"
               onClick={() => switchTab('admin')}
-              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+              className={`flex-1 min-h-[48px] py-3 text-sm font-medium transition-colors ${
                 activeTab === 'admin'
                   ? 'text-white bg-gray-800/50 border-b-2 border-blue-500'
                   : 'text-gray-400 hover:text-gray-300'
@@ -145,7 +145,7 @@ export function LoginPage() {
                     required
                     value={chatterName}
                     onChange={(e) => setChatterName(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                     placeholder="הכנס את שמך המלא"
                   />
                 </div>
@@ -159,7 +159,7 @@ export function LoginPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <User size={16} />
                   {submitting ? 'מתחבר...' : 'כניסה'}
@@ -182,7 +182,7 @@ export function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                     placeholder="admin@example.com"
                   />
                 </div>
@@ -201,7 +201,7 @@ export function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                     placeholder="••••••••"
                   />
                 </div>
@@ -215,7 +215,7 @@ export function LoginPage() {
                 <button
                   type="submit"
                   disabled={submitting || authLoading}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <LogIn size={16} />
                   {submitting ? 'מתחבר...' : LABELS.login}

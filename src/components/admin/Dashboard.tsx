@@ -89,7 +89,7 @@ export function Dashboard({ stats }: DashboardProps) {
   ];
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-4 sm:p-6" dir="rtl">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{LABELS.dashboard}</h2>
         <p className="text-sm text-gray-400 mt-1">סקירה כללית של מצב המשמרות</p>

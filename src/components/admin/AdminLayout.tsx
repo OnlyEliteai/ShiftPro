@@ -1,13 +1,16 @@
+import { useState } from 'react';
 import {
   LayoutDashboard,
   Calendar,
   Users,
-  Copy,
+  ClipboardCheck,
   Database,
   Bell,
   AlertTriangle,
   BarChart3,
   LogOut,
+  Menu,
+  X,
 } from 'lucide-react';
 import { LABELS, cn } from '../../lib/utils';
 
@@ -17,6 +20,7 @@ interface AdminLayoutProps {
   onTabChange: (tab: string) => void;
   onLogout: () => void;
   errorCount?: number;
+  pendingCount?: number;
   adminName?: string | null;
 }
 
@@ -33,8 +37,11 @@ export function AdminLayout({
   onTabChange,
   onLogout,
   errorCount = 0,
+  pendingCount = 0,
   adminName,
 }: AdminLayoutProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const navItems: NavItem[] = [
     {
       id: 'dashboard',
@@ -47,14 +54,15 @@ export function AdminLayout({
       icon: <Calendar size={20} />,
     },
     {
+      id: 'approval',
+      label: LABELS.approval,
+      icon: <ClipboardCheck size={20} />,
+      badge: pendingCount,
+    },
+    {
       id: 'chatters',
       label: LABELS.chatters,
       icon: <Users size={20} />,
-    },
-    {
-      id: 'templates',
-      label: LABELS.templates,
-      icon: <Copy size={20} />,
     },
     {
       id: 'models',
@@ -79,10 +87,18 @@ export function AdminLayout({
     },
   ];
 
+  // Bottom nav shows a subset of important items on mobile
+  const bottomNavItems = navItems.slice(0, 5);
+
+  const handleTabChange = (tab: string) => {
+    onTabChange(tab);
+    setMobileMenuOpen(false);
+  };
+
   return (
     <div className="flex h-screen bg-gray-950 text-white overflow-hidden" dir="rtl">
-      {/* Sidebar */}
-      <aside className="flex flex-col w-64 bg-gray-900 border-l border-gray-800 shrink-0">
+      {/* Desktop Sidebar — hidden on mobile */}
+      <aside className="hidden lg:flex flex-col w-64 bg-gray-900 border-l border-gray-800 shrink-0">
         {/* Logo / Brand */}
         <div className="px-6 py-5 border-b border-gray-800">
           <h1 className="text-xl font-bold text-white tracking-tight">ShiftPro</h1>
@@ -96,7 +112,7 @@ export function AdminLayout({
             return (
               <button
                 key={item.id}
-                onClick={() => onTabChange(item.id)}
+                onClick={() => handleTabChange(item.id)}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-right',
                   isActive
@@ -140,8 +156,91 @@ export function AdminLayout({
         </div>
       </aside>
 
+      {/* Mobile Header — visible on < lg */}
+      <div className="lg:hidden fixed top-0 inset-x-0 z-30 bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold text-white tracking-tight">ShiftPro</h1>
+        </div>
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </div>
+
+      {/* Mobile Slide-down Menu */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-20 bg-black/60" onClick={() => setMobileMenuOpen(false)}>
+          <div
+            className="absolute top-[52px] inset-x-0 bg-gray-900 border-b border-gray-800 px-3 py-3 space-y-1 max-h-[70vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {navItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleTabChange(item.id)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all duration-150 text-right',
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  )}
+                >
+                  <span className={cn('shrink-0', isActive ? 'text-white' : 'text-gray-500')}>
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded-full">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-all duration-150"
+            >
+              <LogOut size={20} className="shrink-0" />
+              <span>{LABELS.logout}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Bottom Nav */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-900 border-t border-gray-800 flex">
+        {bottomNavItems.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleTabChange(item.id)}
+              className={cn(
+                'flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors relative',
+                isActive ? 'text-blue-400' : 'text-gray-500'
+              )}
+            >
+              <span className="relative">
+                {item.icon}
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 flex items-center justify-center bg-red-600 text-white text-[9px] font-bold rounded-full">
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+              </span>
+              <span className="truncate max-w-[56px]">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* Content */}
-      <main className="flex-1 overflow-y-auto bg-gray-950">
+      <main className="flex-1 overflow-y-auto bg-gray-950 pt-[52px] pb-[60px] lg:pt-0 lg:pb-0">
         {children}
       </main>
     </div>

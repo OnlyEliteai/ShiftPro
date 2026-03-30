@@ -3,7 +3,7 @@ export const LABELS = {
   schedule: 'לוח משמרות',
   chatters: 'צ׳אטרים',
   analytics: 'אנליטיקס',
-  templates: 'תבניות',
+  approval: 'אישור משמרות',
   reminders: 'תזכורות',
   settings: 'הגדרות',
   clockIn: 'כניסה למשמרת',
@@ -13,7 +13,13 @@ export const LABELS = {
   deleteShift: 'מחק משמרת',
   addChatter: 'הוסף צ׳אטר/ית',
   copyLink: 'העתק קישור',
-  applyTemplates: 'החל תבניות לשבוע הבא',
+  pending: 'ממתין לאישור',
+  rejected: 'נדחה',
+  approve: 'אשר',
+  reject: 'דחה',
+  adminApproval: 'אישור מנהל',
+  selectModelAndPlatform: 'בחר מודל ופלטפורמה',
+  pendingApproval: 'ממתין לאישור',
   save: 'שמור',
   cancel: 'ביטול',
   login: 'התחברות',
@@ -75,10 +81,12 @@ export function formatDateFull(date: string): string {
 
 export function getStatusColor(status: string): string {
   switch (status) {
+    case 'pending': return 'bg-yellow-500/20 text-yellow-400';
     case 'scheduled': return 'bg-blue-500/20 text-blue-400';
     case 'active': return 'bg-green-500/20 text-green-400';
     case 'completed': return 'bg-gray-500/20 text-gray-400';
     case 'missed': return 'bg-red-500/20 text-red-400';
+    case 'rejected': return 'bg-red-700/20 text-red-500 line-through';
     default: return 'bg-gray-500/20 text-gray-400';
   }
 }

@@ -24,10 +24,12 @@ interface ShiftEditorProps {
 }
 
 const STATUS_OPTIONS: { value: Shift['status']; label: string }[] = [
+  { value: 'pending', label: LABELS.pending },
   { value: 'scheduled', label: LABELS.scheduled },
   { value: 'active', label: LABELS.active },
   { value: 'completed', label: LABELS.completed },
   { value: 'missed', label: LABELS.missed },
+  { value: 'rejected', label: LABELS.rejected },
 ];
 
 export function ShiftEditor({
@@ -100,21 +102,21 @@ export function ShiftEditor({
   }
 
   const inputClass =
-    'w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors';
+    'w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-base text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors';
 
   const labelClass = 'block text-sm font-medium text-gray-300 mb-1';
 
   return (
     /* Overlay */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-end lg:items-center justify-center bg-black/70 backdrop-blur-sm lg:p-4"
       dir="rtl"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Modal */}
-      <div className="w-full max-w-md bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 overflow-hidden">
+      {/* Modal — bottom sheet on mobile, centered on desktop */}
+      <div className="w-full lg:max-w-md bg-gray-800 rounded-t-2xl lg:rounded-2xl shadow-2xl border border-gray-700 overflow-hidden max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
           <h2 className="text-lg font-bold text-white">
@@ -277,14 +279,14 @@ export function ShiftEditor({
             <button
               type="submit"
               disabled={!hasModels}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
             >
               {LABELS.save}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold py-2.5 rounded-lg text-sm transition-colors"
+              className="flex-1 bg-gray-700 hover:bg-gray-600 text-gray-200 font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
             >
               {LABELS.cancel}
             </button>

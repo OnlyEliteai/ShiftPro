@@ -16,22 +16,12 @@ export interface Shift {
   end_time: string;
   model: string | null;
   platform: 'telegram' | 'onlyfans' | null;
-  status: 'scheduled' | 'active' | 'completed' | 'missed';
+  model_id: string | null;
+  status: 'pending' | 'scheduled' | 'active' | 'completed' | 'missed' | 'rejected';
   clocked_in: string | null;
   clocked_out: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface ShiftTemplate {
-  id: string;
-  chatter_id: string;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  model: string | null;
-  active: boolean;
-  created_at: string;
 }
 
 export interface ReminderLog {
@@ -47,7 +37,7 @@ export interface ActivityLog {
   id: string;
   shift_id: string;
   chatter_id: string;
-  action: 'clock_in' | 'clock_out' | 'auto_missed' | 'manual_override';
+  action: 'clock_in' | 'clock_out' | 'auto_missed' | 'manual_override' | 'sign_up' | 'approve' | 'reject';
   timestamp: string;
   metadata: Record<string, any>;
 }

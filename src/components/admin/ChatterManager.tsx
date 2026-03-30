@@ -57,7 +57,7 @@ export function ChatterManager({
     'bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors';
 
   return (
-    <div className="p-6" dir="rtl">
+    <div className="p-4 sm:p-6" dir="rtl">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div className="mb-6">
@@ -102,7 +102,7 @@ export function ChatterManager({
       </form>
 
       {/* Table */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-700 bg-gray-900/50">
