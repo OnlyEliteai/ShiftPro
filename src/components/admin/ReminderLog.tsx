@@ -102,22 +102,22 @@ export function ReminderLog() {
               <thead>
                 <tr className="border-b border-gray-700 bg-gray-900/50">
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                    נשלח ב
+                    {LABELS.sentAt}
                   </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    צ׳אטר/ית
+                    {LABELS.chatter}
                   </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                    תאריך משמרת
+                    {LABELS.shiftDate}
                   </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                    שעת משמרת
+                    {LABELS.shiftTime}
                   </th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                    סוג תזכורת
+                    {LABELS.reminderType}
                   </th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    סטטוס
+                    {LABELS.status}
                   </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                     Twilio SID
@@ -160,7 +160,7 @@ export function ReminderLog() {
                             : 'bg-orange-500/20 text-orange-400'
                         )}
                       >
-                        {row.reminder_type === '60min' ? '60 דקות' : '15 דקות'}
+                        {row.reminder_type === '60min' ? LABELS.sixtyMinReminder : LABELS.fifteenMinReminder}
                       </span>
                     </td>
 

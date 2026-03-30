@@ -1,5 +1,6 @@
 import type React from 'react';
 import { LogOut } from 'lucide-react';
+import { LABELS } from '../../lib/utils';
 
 interface ChatterLayoutProps {
   chatterName: string;
@@ -19,7 +20,7 @@ export function ChatterLayout({ chatterName, onLogout, children }: ChatterLayout
               <button
                 onClick={onLogout}
                 className="text-gray-500 hover:text-gray-300 transition-colors"
-                title="יציאה"
+                title={LABELS.exit}
               >
                 <LogOut size={16} />
               </button>

@@ -101,7 +101,7 @@ export function Analytics() {
 
       const modelMap = new Map<string, number>();
       for (const s of allShifts || []) {
-        const m = s.model || 'ללא מודל';
+        const m = s.model || LABELS.noModel;
         modelMap.set(m, (modelMap.get(m) || 0) + 1);
       }
       const modelData: ModelData[] = [];
@@ -127,13 +127,13 @@ export function Analytics() {
         <h2 className="text-xl font-bold">{LABELS.analytics}</h2>
         <button onClick={fetchAnalytics} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 rounded-lg hover:bg-gray-600 text-sm">
           <RefreshCw size={14} />
-          רענן
+          {LABELS.refresh}
         </button>
       </div>
 
       {/* Attendance Rate per Chatter */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <h3 className="text-lg font-semibold mb-4">{LABELS.attendanceRate} לפי צ׳אטר (30 יום)</h3>
+        <h3 className="text-lg font-semibold mb-4">{LABELS.attendanceByChatter} לפי צ׳אטר (30 יום)</h3>
         {attendance.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={attendance} layout="vertical">
@@ -145,13 +145,13 @@ export function Analytics() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <p className="text-gray-400 text-center py-8">אין נתונים עדיין</p>
+          <p className="text-gray-400 text-center py-8">{LABELS.noDataYet}</p>
         )}
       </div>
 
       {/* Weekly Trend */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <h3 className="text-lg font-semibold mb-4">מגמת נוכחות שבועית</h3>
+        <h3 className="text-lg font-semibold mb-4">{LABELS.weeklyTrend}</h3>
         {weeklyTrend.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={weeklyTrend}>
@@ -163,13 +163,13 @@ export function Analytics() {
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <p className="text-gray-400 text-center py-8">אין נתונים עדיין</p>
+          <p className="text-gray-400 text-center py-8">{LABELS.noDataYet}</p>
         )}
       </div>
 
       {/* Model Coverage */}
       <div className="bg-gray-800 rounded-xl p-6">
-        <h3 className="text-lg font-semibold mb-4">כיסוי מודלים</h3>
+        <h3 className="text-lg font-semibold mb-4">{LABELS.modelCoverage}</h3>
         {modelCoverage.length > 0 ? (
           <div className="flex items-center gap-8">
             <ResponsiveContainer width="50%" height={250}>
@@ -186,13 +186,13 @@ export function Analytics() {
               {modelCoverage.map((m, i) => (
                 <div key={m.model} className="flex items-center gap-2 text-sm">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                  <span>{m.model}: {m.count} משמרות</span>
+                  <span>{m.model}: {m.count} {LABELS.shifts}</span>
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-gray-400 text-center py-8">אין נתונים עדיין</p>
+          <p className="text-gray-400 text-center py-8">{LABELS.noDataYet}</p>
         )}
       </div>
     </div>

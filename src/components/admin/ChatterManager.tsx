@@ -78,7 +78,7 @@ export function ChatterManager({
         className="flex flex-wrap items-end gap-3 mb-6 bg-gray-800 rounded-xl p-4 border border-gray-700"
       >
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-xs font-medium text-gray-400 mb-1">שם</label>
+          <label className="block text-xs font-medium text-gray-400 mb-1">{LABELS.name}</label>
           <input
             type="text"
             value={name}
@@ -89,7 +89,7 @@ export function ChatterManager({
           />
         </div>
         <div className="flex-1 min-w-[140px]">
-          <label className="block text-xs font-medium text-gray-400 mb-1">טלפון</label>
+          <label className="block text-xs font-medium text-gray-400 mb-1">{LABELS.phone}</label>
           <input
             type="tel"
             value={phone}
@@ -120,19 +120,19 @@ export function ChatterManager({
           <thead>
             <tr className="border-b border-gray-700 bg-gray-900/50">
               <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                שם
+                {LABELS.name}
               </th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                טלפון
+                {LABELS.phone}
               </th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                סטטוס
+                {LABELS.status}
               </th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                לינק אישי
+                {LABELS.personalLink}
               </th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                פעולות
+                {LABELS.actions}
               </th>
             </tr>
           </thead>

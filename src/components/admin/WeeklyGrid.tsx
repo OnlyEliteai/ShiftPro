@@ -48,7 +48,7 @@ export function WeeklyGrid({
           <button
             onClick={() => onWeekChange(weekOffset - 1)}
             className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
-            aria-label="שבוע קודם"
+            aria-label={LABELS.prevWeek}
           >
             <ChevronRight size={18} />
           </button>
@@ -62,13 +62,13 @@ export function WeeklyGrid({
                 : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
             )}
           >
-            השבוע
+            {LABELS.thisWeek}
           </button>
 
           <button
             onClick={() => onWeekChange(weekOffset + 1)}
             className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
-            aria-label="שבוע הבא"
+            aria-label={LABELS.nextWeek}
           >
             <ChevronLeft size={18} />
           </button>

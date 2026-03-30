@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useShifts } from '../hooks/useShifts';
@@ -16,10 +16,11 @@ import { ModelManager } from '../components/admin/ModelManager';
 import { AdminApproval } from '../components/admin/AdminApproval';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
-import { Analytics } from '../components/admin/Analytics';
+const Analytics = lazy(() => import('../components/admin/Analytics').then(m => ({ default: m.Analytics })));
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import type { Shift, ShiftWithChatter } from '../lib/types';
+import { LABELS } from '../lib/utils';
 
 // ─── Form data type that ShiftEditor returns via onSave ───────────────────────
 
@@ -136,14 +137,14 @@ export function AdminPage() {
         const { error } = await updateShift(editingShift.id, formData);
         if (error) showToast('error', error);
         else {
-          showToast('success', 'המשמרת עודכנה');
+          showToast('success', LABELS.shiftUpdated);
           closeEditor();
         }
       } else {
         const { error } = await createShift(formData);
         if (error) showToast('error', error);
         else {
-          showToast('success', 'המשמרת נוספה');
+          showToast('success', LABELS.shiftAdded);
           closeEditor();
         }
       }
@@ -156,7 +157,7 @@ export function AdminPage() {
     const { error } = await deleteShift(editingShift.id);
     if (error) showToast('error', error);
     else {
-      showToast('success', 'המשמרת נמחקה');
+      showToast('success', LABELS.shiftDeleted);
       closeEditor();
     }
   }, [editingShift, deleteShift, showToast, closeEditor]);
@@ -250,7 +251,7 @@ export function AdminPage() {
         return <ErrorLog />;
 
       case 'analytics':
-        return <Analytics />;
+        return <Suspense fallback={<LoadingSpinner />}><Analytics /></Suspense>;
 
       default:
         return null;

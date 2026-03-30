@@ -116,6 +116,55 @@ export const LABELS = {
   sixtyMinReminder: '60 דקות',
   fifteenMinReminder: '15 דקות',
   modelNotFound: 'המודל לא נמצא',
+
+  // Table headers & form labels
+  name: 'שם',
+  phone: 'טלפון',
+  status: 'סטטוס',
+  personalLink: 'לינק אישי',
+  actions: 'פעולות',
+  date: 'תאריך',
+  time: 'שעה',
+  startTime: 'שעת התחלה',
+  endTime: 'שעת סיום',
+  model: 'מודל',
+  chatter: 'צ׳אטר/ית',
+
+  // ShiftEditor
+  selectChatter: 'יש לבחור צ׳אטר/ית',
+  sureToDelete: 'בטוח/ה למחוק?',
+
+  // Admin messages
+  shiftUpdated: 'המשמרת עודכנה',
+  shiftAdded: 'המשמרת נוספה',
+  shiftDeleted: 'המשמרת נמחקה',
+
+  // ErrorLog
+  errorLogTitle: 'לוג שגיאות מהמערכת',
+  errorLoadFailed: 'שגיאה בטעינת לוג שגיאות',
+  retries: 'ניסיונות',
+  handled: 'טופל',
+  open: 'פתוח',
+  errorMessage: 'שגיאה',
+
+  // ReminderLog
+  sentAt: 'נשלח ב',
+  shiftDate: 'תאריך משמרת',
+  shiftTime: 'שעת משמרת',
+  reminderType: 'סוג תזכורת',
+
+  // Analytics
+  noModel: 'ללא מודל',
+  attendanceByChatter: 'אחוז נוכחות',
+  weeklyTrend: 'מגמת נוכחות שבועית',
+  modelCoverage: 'כיסוי מודלים',
+  noDataYet: 'אין נתונים עדיין',
+  shifts: 'משמרות',
+
+  // Misc
+  loading: 'טוען...',
+  close: 'סגור',
+  openShiftsDescription: 'משמרות פתוחות להרשמה',
 } as const;
 
 export function formatTime(time: string): string {

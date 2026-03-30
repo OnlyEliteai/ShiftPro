@@ -77,7 +77,7 @@ export function ShiftEditor({
     setValidationError(null);
 
     if (!form.chatter_id) {
-      setValidationError('יש לבחור צ׳אטר/ית');
+      setValidationError(LABELS.selectChatter);
       return;
     }
 
@@ -134,7 +134,7 @@ export function ShiftEditor({
           {/* Chatter */}
           <div>
             <label htmlFor="chatter_id" className={labelClass}>
-              צ׳אטר/ית
+              {LABELS.chatter}
             </label>
             <select
               id="chatter_id"
@@ -156,7 +156,7 @@ export function ShiftEditor({
           {/* Date */}
           <div>
             <label htmlFor="date" className={labelClass}>
-              תאריך
+              {LABELS.date}
             </label>
             <input
               id="date"
@@ -173,7 +173,7 @@ export function ShiftEditor({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="start_time" className={labelClass}>
-                שעת התחלה
+                {LABELS.startTime}
               </label>
               <input
                 id="start_time"
@@ -187,7 +187,7 @@ export function ShiftEditor({
             </div>
             <div>
               <label htmlFor="end_time" className={labelClass}>
-                שעת סיום
+                {LABELS.endTime}
               </label>
               <input
                 id="end_time"
@@ -223,7 +223,7 @@ export function ShiftEditor({
           {/* Model */}
           <div>
             <label htmlFor="model" className={labelClass}>
-              מודל
+              {LABELS.model}
             </label>
             {hasModels ? (
               <select
@@ -250,7 +250,7 @@ export function ShiftEditor({
           {isEditing && (
             <div>
               <label htmlFor="status" className={labelClass}>
-                סטטוס
+                {LABELS.status}
               </label>
               <select
                 id="status"
@@ -296,13 +296,13 @@ export function ShiftEditor({
             <div className="pt-1">
               {confirmDelete ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-red-400 flex-1">בטוח/ה למחוק?</span>
+                  <span className="text-sm text-red-400 flex-1">{LABELS.sureToDelete}</span>
                   <button
                     type="button"
                     onClick={onDelete}
                     className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg font-medium transition-colors"
                   >
-                    מחק
+                    {LABELS.delete}
                   </button>
                   <button
                     type="button"

@@ -93,7 +93,7 @@ export function LoginPage() {
         {/* Logo / title */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white tracking-tight">ShiftPro</h1>
-          <p className="text-sm text-gray-400 mt-1">ניהול משמרות</p>
+          <p className="text-sm text-gray-400 mt-1">{LABELS.shiftManagement}</p>
         </div>
 
         {/* Card */}
@@ -135,7 +135,7 @@ export function LoginPage() {
                     htmlFor="chatter-name"
                     className="block text-sm font-medium text-gray-300 mb-1.5"
                   >
-                    שם מלא
+                    {LABELS.fullName}
                   </label>
                   <input
                     id="chatter-name"
@@ -145,7 +145,7 @@ export function LoginPage() {
                     value={chatterName}
                     onChange={(e) => setChatterName(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-                    placeholder="הכנס את שמך המלא"
+                    placeholder={LABELS.enterFullName}
                   />
                 </div>
 
@@ -161,7 +161,7 @@ export function LoginPage() {
                   className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <User size={16} />
-                  {submitting ? 'מתחבר...' : 'כניסה'}
+                  {submitting ? LABELS.connecting : LABELS.entry}
                 </button>
               </form>
             ) : (
@@ -172,7 +172,7 @@ export function LoginPage() {
                     htmlFor="email"
                     className="block text-sm font-medium text-gray-300 mb-1.5"
                   >
-                    אימייל
+                    {LABELS.email}
                   </label>
                   <input
                     id="email"
@@ -191,7 +191,7 @@ export function LoginPage() {
                     htmlFor="password"
                     className="block text-sm font-medium text-gray-300 mb-1.5"
                   >
-                    סיסמה
+                    {LABELS.password}
                   </label>
                   <input
                     id="password"
@@ -217,7 +217,7 @@ export function LoginPage() {
                   className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <LogIn size={16} />
-                  {submitting ? 'מתחבר...' : LABELS.login}
+                  {submitting ? LABELS.connecting : LABELS.login}
                 </button>
               </form>
             )}

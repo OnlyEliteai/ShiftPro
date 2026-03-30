@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import type { Toast } from '../../lib/types';
+import { LABELS } from '../../lib/utils';
 
 const TOAST_COLORS: Record<Toast['type'], string> = {
   success: 'bg-green-600 border-green-500',
@@ -25,7 +26,7 @@ export function ToastContainer({
           className={`flex items-center gap-2 px-4 py-3 rounded-lg border text-white text-sm shadow-lg animate-slide-in ${TOAST_COLORS[toast.type]}`}
         >
           <span className="flex-1">{toast.message}</span>
-          <button onClick={() => onDismiss(toast.id)} className="hover:opacity-70" aria-label="סגור">
+          <button onClick={() => onDismiss(toast.id)} className="hover:opacity-70" aria-label={LABELS.close}>
             <X size={16} />
           </button>
         </div>

@@ -14,7 +14,7 @@ interface ShiftCardProps {
 }
 
 function formatCountdown(minutes: number): string {
-  if (minutes <= 0) return 'עכשיו';
+  if (minutes <= 0) return LABELS.now;
   if (minutes < 60) return `${minutes} ${LABELS.minutesShort}`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
