@@ -36,7 +36,7 @@ export function AdminApproval({ models }: AdminApprovalProps) {
       .order('date');
 
     if (!error && data) {
-      setPendingShifts(data as PendingShift[]);
+      setPendingShifts(data as unknown as PendingShift[]);
     }
     setLoading(false);
   }, []);
