@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LogIn, LogOut, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { LogIn, LogOut, Clock, CheckCircle, XCircle, UserPlus } from 'lucide-react';
 import { callEdgeFunction } from '../../lib/supabase';
 import type { Shift } from '../../lib/types';
 import { formatDate, formatTime, minutesUntil, LABELS, cn } from '../../lib/utils';
@@ -9,6 +9,8 @@ interface ShiftCardProps {
   shift: Shift;
   token: string;
   onUpdate: () => void;
+  /** 'my' = chatter's own shift (default), 'available' = open shift with sign-up button */
+  variant?: 'my' | 'available';
 }
 
 function formatCountdown(minutes: number): string {
@@ -34,7 +36,7 @@ function formatDurationSince(isoTimestamp: string): string {
     : `${h} ${LABELS.hoursShort}`;
 }
 
-export function ShiftCard({ shift, token, onUpdate }: ShiftCardProps) {
+export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(() =>
@@ -92,16 +94,34 @@ export function ShiftCard({ shift, token, onUpdate }: ShiftCardProps) {
     }
   }, [token, shift.id, onUpdate]);
 
+  const handleSignUp = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const result = await callEdgeFunction('sign-up-shift', {
+      method: 'POST',
+      body: JSON.stringify({ token, shiftId: shift.id }),
+    });
+    setLoading(false);
+    if (!result.success) {
+      setError(result.error ?? LABELS.shiftTaken);
+    } else {
+      onUpdate();
+    }
+  }, [token, shift.id, onUpdate]);
+
   const isScheduled = shift.status === 'scheduled';
   const isActive = shift.status === 'active';
   const isCompleted = shift.status === 'completed';
   const isMissed = shift.status === 'missed';
+  const isAvailable = variant === 'available';
 
   return (
     <div
       className={cn(
         'bg-gray-800 rounded-xl p-4 border transition-colors',
-        isActive
+        isAvailable
+          ? 'border-purple-500/30 hover:border-purple-400/50'
+          : isActive
           ? 'border-green-500/40 shadow-md shadow-green-900/20'
           : isMissed
           ? 'border-red-500/20'
@@ -116,7 +136,12 @@ export function ShiftCard({ shift, token, onUpdate }: ShiftCardProps) {
             <p className="text-xs text-gray-400 mt-0.5">{shift.model}</p>
           )}
         </div>
-        <StatusBadge status={shift.status} />
+        {!isAvailable && <StatusBadge status={shift.status} />}
+        {isAvailable && (
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400">
+            פנויה
+          </span>
+        )}
       </div>
 
       {/* Time range */}
@@ -127,8 +152,20 @@ export function ShiftCard({ shift, token, onUpdate }: ShiftCardProps) {
         </span>
       </div>
 
-      {/* Scheduled: countdown + clock-in */}
-      {isScheduled && (
+      {/* Available: sign-up button */}
+      {isAvailable && (
+        <button
+          onClick={handleSignUp}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+        >
+          <UserPlus size={16} />
+          {loading ? '...' : LABELS.signUp}
+        </button>
+      )}
+
+      {/* Scheduled: countdown + clock-in (only for own shifts) */}
+      {!isAvailable && isScheduled && (
         <div className="space-y-3">
           <p className="text-xs text-blue-400">
             {LABELS.shiftStartsIn}{' '}

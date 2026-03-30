@@ -1,24 +1,20 @@
-import { useSearchParams } from 'react-router-dom';
 import { useChatterAuth } from '../hooks/useChatterAuth';
 import { useToast } from '../hooks/useToast';
 import { ChatterLayout } from '../components/chatter/ChatterLayout';
 import { MySchedule } from '../components/chatter/MySchedule';
+import { AvailableShifts } from '../components/chatter/AvailableShifts';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import { LABELS } from '../lib/utils';
 import { AlertCircle } from 'lucide-react';
 
 export function ChatterPage() {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') ?? '';
-
-  const { chatter, shifts, loading, error, refetch } = useChatterAuth();
+  const { chatter, shifts, availableShifts, loading, error, token, refetch } =
+    useChatterAuth();
   const { toasts, showToast, dismissToast } = useToast();
 
-  // Wrap refetch to show toast on success
   const handleRefetch = async () => {
     await refetch();
-    // Toast is shown from ShiftCard on action completion — no extra toast needed here
   };
 
   if (loading) {
@@ -53,6 +49,7 @@ export function ChatterPage() {
   return (
     <>
       <ChatterLayout chatterName={chatter.name}>
+        {/* My Shifts */}
         <div className="mb-4">
           <h2 className="text-lg font-bold text-white">המשמרות שלי</h2>
           <p className="text-xs text-gray-400 mt-0.5">
@@ -62,6 +59,20 @@ export function ChatterPage() {
 
         <MySchedule
           shifts={shifts}
+          token={token}
+          onRefetch={handleRefetch}
+        />
+
+        {/* Available Shifts */}
+        <div className="mt-10 mb-4">
+          <h2 className="text-lg font-bold text-white">{LABELS.availableShifts}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            משמרות פתוחות להרשמה
+          </p>
+        </div>
+
+        <AvailableShifts
+          shifts={availableShifts}
           token={token}
           onRefetch={handleRefetch}
         />
