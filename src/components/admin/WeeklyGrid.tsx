@@ -1,6 +1,6 @@
 import { ChevronRight, ChevronLeft, Plus } from 'lucide-react';
 import type { Chatter, Shift, ShiftWithChatter } from '../../lib/types';
-import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
+import { LABELS, formatTime, getWeekDates, getPlatformBadge, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 
 interface WeeklyGridProps {
@@ -136,7 +136,7 @@ export function WeeklyGrid({
                     : 'bg-blue-900/40'
                 )}
               >
-                {/* Chatter name + active indicator */}
+                {/* Chatter name + active indicator + platform badge */}
                 <div className="flex items-center gap-1 mb-1">
                   {shift.status === 'active' && (
                     <span className="relative flex h-2 w-2 shrink-0">
@@ -144,9 +144,17 @@ export function WeeklyGrid({
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                     </span>
                   )}
-                  <p className="text-xs font-semibold text-white truncate leading-none">
+                  <p className="text-xs font-semibold text-white truncate leading-none flex-1">
                     {shift.chatters?.name ?? '—'}
                   </p>
+                  {shift.platform && (() => {
+                    const badge = getPlatformBadge(shift.platform);
+                    return badge.label ? (
+                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${badge.className} shrink-0`}>
+                        {badge.label}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
 
                 {/* Time */}

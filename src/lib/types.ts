@@ -15,6 +15,7 @@ export interface Shift {
   start_time: string;
   end_time: string;
   model: string | null;
+  platform: 'telegram' | 'onlyfans' | null;
   status: 'scheduled' | 'active' | 'completed' | 'missed';
   clocked_in: string | null;
   clocked_out: string | null;
@@ -63,6 +64,13 @@ export interface ErrorLog {
   resolved: boolean;
   created_at: string;
   resolved_at: string | null;
+}
+
+export interface Model {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
 }
 
 export interface ShiftWithChatter extends Shift {

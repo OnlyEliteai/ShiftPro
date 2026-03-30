@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { LogIn, LogOut, Clock, CheckCircle, XCircle, UserPlus } from 'lucide-react';
 import { callEdgeFunction } from '../../lib/supabase';
 import type { Shift } from '../../lib/types';
-import { formatDate, formatTime, minutesUntil, LABELS, cn } from '../../lib/utils';
+import { formatDate, formatTime, minutesUntil, getPlatformBadge, LABELS, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 
 interface ShiftCardProps {
@@ -128,10 +128,20 @@ export function ShiftCard({ shift, token, onUpdate, variant = 'my' }: ShiftCardP
           : 'border-gray-700/50 hover:border-gray-600'
       )}
     >
-      {/* Top row: date + model + status */}
+      {/* Top row: date + platform + model + status */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
-          <p className="text-sm font-semibold text-white">{formatDate(shift.date)}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-white">{formatDate(shift.date)}</p>
+            {shift.platform && (() => {
+              const badge = getPlatformBadge(shift.platform);
+              return badge.label ? (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${badge.className}`}>
+                  {badge.label}
+                </span>
+              ) : null;
+            })()}
+          </div>
           {shift.model && (
             <p className="text-xs text-gray-400 mt-0.5">{shift.model}</p>
           )}

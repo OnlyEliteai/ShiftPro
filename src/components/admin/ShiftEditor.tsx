@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import type { Chatter, Shift } from '../../lib/types';
+import type { Chatter, Model, Shift } from '../../lib/types';
 import { LABELS } from '../../lib/utils';
 
 interface ShiftFormData {
@@ -9,12 +9,14 @@ interface ShiftFormData {
   start_time: string;
   end_time: string;
   model: string;
+  platform: string;
   status: Shift['status'];
 }
 
 interface ShiftEditorProps {
   shift?: Shift;
   chatters: Chatter[];
+  models: Model[];
   date?: string;
   onSave: (data: ShiftFormData) => void;
   onDelete?: () => void;
@@ -28,16 +30,17 @@ const STATUS_OPTIONS: { value: Shift['status']; label: string }[] = [
   { value: 'missed', label: LABELS.missed },
 ];
 
-const MODEL_OPTIONS = ['GPT-4o', 'Claude 3', 'Gemini Pro', 'Llama 3', 'אחר'];
-
 export function ShiftEditor({
   shift,
   chatters,
+  models,
   date,
   onSave,
   onDelete,
   onClose,
 }: ShiftEditorProps) {
+  const activeModels = models.filter((m) => m.active);
+  const hasModels = activeModels.length > 0;
   const isEditing = !!shift;
 
   const [form, setForm] = useState<ShiftFormData>({
@@ -46,6 +49,7 @@ export function ShiftEditor({
     start_time: shift?.start_time ?? '09:00',
     end_time: shift?.end_time ?? '17:00',
     model: shift?.model ?? '',
+    platform: shift?.platform ?? '',
     status: shift?.status ?? 'scheduled',
   });
 
@@ -72,6 +76,16 @@ export function ShiftEditor({
 
     if (!form.chatter_id) {
       setValidationError('יש לבחור צ׳אטר/ית');
+      return;
+    }
+
+    if (!form.platform) {
+      setValidationError('יש לבחור פלטפורמה');
+      return;
+    }
+
+    if (!form.model && hasModels) {
+      setValidationError('יש לבחור מודל');
       return;
     }
 
@@ -186,25 +200,49 @@ export function ShiftEditor({
             </div>
           </div>
 
+          {/* Platform */}
+          <div>
+            <label htmlFor="platform" className={labelClass}>
+              {LABELS.platform}
+            </label>
+            <select
+              id="platform"
+              name="platform"
+              value={form.platform}
+              onChange={handleChange}
+              className={inputClass}
+              required
+            >
+              <option value="">{LABELS.selectPlatform}</option>
+              <option value="telegram">{LABELS.telegram}</option>
+              <option value="onlyfans">{LABELS.onlyfans}</option>
+            </select>
+          </div>
+
           {/* Model */}
           <div>
             <label htmlFor="model" className={labelClass}>
               מודל
             </label>
-            <select
-              id="model"
-              name="model"
-              value={form.model}
-              onChange={handleChange}
-              className={inputClass}
-            >
-              <option value="">ללא</option>
-              {MODEL_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
+            {hasModels ? (
+              <select
+                id="model"
+                name="model"
+                value={form.model}
+                onChange={handleChange}
+                className={inputClass}
+                required
+              >
+                <option value="">{LABELS.selectModel}</option>
+                {activeModels.map((m) => (
+                  <option key={m.id} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-yellow-400 py-2">{LABELS.addModelFirst}</p>
+            )}
           </div>
 
           {/* Status — only show when editing */}
@@ -238,7 +276,8 @@ export function ShiftEditor({
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
+              disabled={!hasModels}
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-colors"
             >
               {LABELS.save}
             </button>

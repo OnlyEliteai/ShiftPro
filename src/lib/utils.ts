@@ -48,6 +48,15 @@ export const LABELS = {
   reconnecting: 'מתחבר מחדש...',
   markResolved: 'סמן כטופל',
   unresolvedErrors: 'שגיאות פתוחות',
+  models: 'מודלים',
+  addModel: 'הוסף מודל',
+  telegram: 'טלגרם',
+  onlyfans: 'אונליפנס',
+  platform: 'פלטפורמה',
+  selectModel: 'בחר מודל',
+  selectPlatform: 'בחר פלטפורמה',
+  addModelFirst: 'הוסף מודל תחילה',
+  modelHasFutureShifts: 'יש משמרות עתידיות למודל זה',
 } as const;
 
 export function formatTime(time: string): string {
@@ -95,6 +104,12 @@ export function minutesUntil(date: string, time: string): number {
   const shiftStart = new Date(`${date}T${time}`);
   const now = new Date();
   return Math.floor((shiftStart.getTime() - now.getTime()) / 60000);
+}
+
+export function getPlatformBadge(platform: string | null): { label: string; className: string } {
+  if (platform === 'telegram') return { label: 'TG', className: 'bg-blue-500/20 text-blue-400' };
+  if (platform === 'onlyfans') return { label: 'OF', className: 'bg-orange-500/20 text-orange-400' };
+  return { label: '', className: '' };
 }
 
 export function cn(...classes: (string | boolean | undefined | null)[]): string {

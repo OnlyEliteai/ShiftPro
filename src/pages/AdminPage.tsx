@@ -4,12 +4,14 @@ import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useShifts } from '../hooks/useShifts';
 import { useChatters } from '../hooks/useChatters';
 import { useAnalytics } from '../hooks/useAnalytics';
+import { useModels } from '../hooks/useModels';
 import { useToast } from '../hooks/useToast';
 import { AdminLayout } from '../components/admin/AdminLayout';
 import { Dashboard } from '../components/admin/Dashboard';
 import { WeeklyGrid } from '../components/admin/WeeklyGrid';
 import { ShiftEditor } from '../components/admin/ShiftEditor';
 import { ChatterManager } from '../components/admin/ChatterManager';
+import { ModelManager } from '../components/admin/ModelManager';
 import { TemplateManager } from '../components/admin/TemplateManager';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
@@ -26,6 +28,7 @@ interface ShiftFormData {
   start_time: string;
   end_time: string;
   model: string;
+  platform: string;
   status: Shift['status'];
 }
 
@@ -36,6 +39,7 @@ type Tab =
   | 'schedule'
   | 'chatters'
   | 'templates'
+  | 'models'
   | 'reminders'
   | 'errors'
   | 'analytics';
@@ -48,6 +52,7 @@ export function AdminPage() {
   const { shifts, createShift, updateShift, deleteShift } = useShifts();
   const { chatters, createChatter, updateChatter, deleteChatter, toggleActive } = useChatters();
   const { stats, loading: analyticsLoading } = useAnalytics();
+  const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -208,6 +213,16 @@ export function AdminPage() {
       case 'templates':
         return <TemplateManager chatters={chatters} />;
 
+      case 'models':
+        return (
+          <ModelManager
+            models={models}
+            onCreateModel={createModel}
+            onToggleActive={toggleModelActive}
+            onDeleteModel={deleteModel}
+          />
+        );
+
       case 'reminders':
         return <ReminderLog />;
 
@@ -237,6 +252,7 @@ export function AdminPage() {
         <ShiftEditor
           shift={editingShift}
           chatters={chatters}
+          models={models}
           date={editorDate}
           onSave={handleSaveShift}
           onDelete={editingShift ? handleDeleteShift : undefined}

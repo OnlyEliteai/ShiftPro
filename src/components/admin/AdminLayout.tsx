@@ -3,6 +3,7 @@ import {
   Calendar,
   Users,
   Copy,
+  Database,
   Bell,
   AlertTriangle,
   BarChart3,
@@ -52,6 +53,11 @@ export function AdminLayout({
       id: 'templates',
       label: LABELS.templates,
       icon: <Copy size={20} />,
+    },
+    {
+      id: 'models',
+      label: LABELS.models,
+      icon: <Database size={20} />,
     },
     {
       id: 'reminders',
