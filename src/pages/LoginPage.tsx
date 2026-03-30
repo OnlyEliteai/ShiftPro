@@ -12,7 +12,7 @@ const SESSION_KEY = 'shiftpro-chatter-session';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signIn, loading: authLoading } = useAdminAuth();
+  const { signIn } = useAdminAuth();
 
   const [activeTab, setActiveTab] = useState<LoginTab>('chatter');
 
@@ -214,7 +214,7 @@ export function LoginPage() {
 
                 <button
                   type="submit"
-                  disabled={submitting || authLoading}
+                  disabled={submitting}
                   className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <LogIn size={16} />
