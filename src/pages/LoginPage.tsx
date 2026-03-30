@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAdminAuth } from '../hooks/useAdminAuth';
-import { callEdgeFunction } from '../lib/supabase';
+import { supabase, callEdgeFunction } from '../lib/supabase';
 import type { ChatterSession } from '../lib/types';
 import { LABELS } from '../lib/utils';
 import { LogIn, User } from 'lucide-react';
@@ -12,7 +11,6 @@ const SESSION_KEY = 'shiftpro-chatter-session';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { signIn } = useAdminAuth();
 
   const [activeTab, setActiveTab] = useState<LoginTab>('chatter');
 
@@ -31,13 +29,40 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
 
-    const { error: authError } = await signIn(email.trim(), password);
-    setSubmitting(false);
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (authError) {
-      setError(authError);
-    } else {
+      if (authError) {
+        setSubmitting(false);
+        setError(authError.message);
+        return;
+      }
+
+      // Check profile role
+      const user = data.user;
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+
+        if (!profile || profile.role !== 'admin') {
+          await supabase.auth.signOut();
+          setSubmitting(false);
+          setError(LABELS.noAdminPermission);
+          return;
+        }
+      }
+
+      setSubmitting(false);
       navigate('/admin', { replace: true });
+    } catch {
+      setSubmitting(false);
+      setError(LABELS.noConnection);
     }
   };
 
@@ -85,10 +110,11 @@ export function LoginPage() {
     setError(null);
   };
 
+  const inputClass =
+    'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors';
+
   return (
-    <div
-      className="min-h-screen bg-gray-950 flex items-center justify-center px-4"
-    >
+    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         {/* Logo / title */}
         <div className="text-center mb-8">
@@ -144,7 +170,7 @@ export function LoginPage() {
                     required
                     value={chatterName}
                     onChange={(e) => setChatterName(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className={inputClass}
                     placeholder={LABELS.enterFullName}
                   />
                 </div>
@@ -181,7 +207,7 @@ export function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className={inputClass}
                     placeholder="admin@example.com"
                   />
                 </div>
@@ -200,7 +226,7 @@ export function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    className={inputClass}
                     placeholder="••••••••"
                   />
                 </div>

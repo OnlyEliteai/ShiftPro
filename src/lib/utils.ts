@@ -76,6 +76,7 @@ export const LABELS = {
   myShifts: 'המשמרות שלי',
   overviewSubtitle: 'סקירה כללית של מצב המשמרות',
   shiftManagement: 'ניהול משמרות',
+  noAdminPermission: 'אין לך הרשאות מנהל',
   available: 'פנויה',
   activeFor: 'פעיל כבר',
   clockInError: 'שגיאה בכניסה למשמרת',
