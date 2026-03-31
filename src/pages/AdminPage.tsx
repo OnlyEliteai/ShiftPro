@@ -16,20 +16,23 @@ import { ModelManager } from '../components/admin/ModelManager';
 import { AdminApproval } from '../components/admin/AdminApproval';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
+import { MonthlyGoalsSection } from '../components/admin/MonthlyGoalsSection';
 const Analytics = lazy(() => import('../components/admin/Analytics').then(m => ({ default: m.Analytics })));
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import type { Shift, ShiftWithChatter } from '../lib/types';
-import { LABELS } from '../lib/utils';
+import { LABELS, getWeekDates } from '../lib/utils';
 
 // ─── Form data type that ShiftEditor returns via onSave ───────────────────────
 
 interface ShiftFormData {
   chatter_id: string;
   date: string;
+  shift_type: 'morning' | 'evening';
   start_time: string;
   end_time: string;
   model: string;
+  model_id: string;
   platform: 'telegram' | 'onlyfans' | null;
   status: Shift['status'];
 }
@@ -63,6 +66,7 @@ export function AdminPage() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [editingShift, setEditingShift] = useState<Shift | undefined>(undefined);
   const [editorDate, setEditorDate] = useState<string | undefined>(undefined);
+  const [editorShiftType, setEditorShiftType] = useState<'morning' | 'evening'>('morning');
   const [showEditor, setShowEditor] = useState(false);
 
   // Pending count for approval badge
@@ -113,9 +117,10 @@ export function AdminPage() {
 
   // ── Schedule callbacks ──────────────────────────────────────────────────────
 
-  const openAddShift = useCallback((date: string) => {
+  const openAddShift = useCallback((date: string, shiftType: 'morning' | 'evening') => {
     setEditingShift(undefined);
     setEditorDate(date);
+    setEditorShiftType(shiftType);
     setShowEditor(true);
   }, []);
 
@@ -129,19 +134,30 @@ export function AdminPage() {
     setShowEditor(false);
     setEditingShift(undefined);
     setEditorDate(undefined);
+    setEditorShiftType('morning');
   }, []);
 
   const handleSaveShift = useCallback(
     async (formData: ShiftFormData) => {
+      const payload = {
+        chatter_id: formData.chatter_id,
+        date: formData.date,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        model: formData.model,
+        model_id: formData.model_id,
+        platform: formData.platform,
+        status: formData.status,
+      };
       if (editingShift) {
-        const { error } = await updateShift(editingShift.id, formData);
+        const { error } = await updateShift(editingShift.id, payload);
         if (error) showToast('error', error);
         else {
           showToast('success', LABELS.shiftUpdated);
           closeEditor();
         }
       } else {
-        const { error } = await createShift(formData);
+        const { error } = await createShift(payload);
         if (error) showToast('error', error);
         else {
           showToast('success', LABELS.shiftAdded);
@@ -208,7 +224,14 @@ export function AdminPage() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return analyticsLoading ? <LoadingSpinner /> : <Dashboard stats={stats} />;
+        return analyticsLoading ? (
+          <LoadingSpinner />
+        ) : (
+          <div className="p-4 sm:p-6">
+            <Dashboard stats={stats} />
+            <MonthlyGoalsSection chatters={chatters} showToast={showToast} />
+          </div>
+        );
 
       case 'schedule':
         return (
@@ -277,6 +300,9 @@ export function AdminPage() {
           chatters={chatters}
           models={models}
           date={editorDate}
+          shiftType={editorShiftType}
+          availableDates={getWeekDates(weekOffset)}
+          existingShifts={shifts as Shift[]}
           onSave={handleSaveShift}
           onDelete={editingShift ? handleDeleteShift : undefined}
           onClose={closeEditor}

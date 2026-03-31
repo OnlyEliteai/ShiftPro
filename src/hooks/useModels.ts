@@ -20,7 +20,15 @@ export function useModels() {
   }, []);
 
   useEffect(() => {
-    fetchModels();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchModels();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchModels]);
 
   const createModel = useCallback(

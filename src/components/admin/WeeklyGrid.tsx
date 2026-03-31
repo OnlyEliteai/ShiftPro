@@ -1,13 +1,13 @@
 import { ChevronRight, ChevronLeft, Plus } from 'lucide-react';
 import type { Shift, ShiftWithChatter } from '../../lib/types';
-import { LABELS, formatTime, getWeekDates, getPlatformBadge, cn } from '../../lib/utils';
+import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
   weekOffset: number;
   onWeekChange: (offset: number) => void;
-  onAddShift: (date: string) => void;
+  onAddShift: (date: string, shiftType: 'morning' | 'evening') => void;
   onEditShift: (shift: Shift) => void;
 }
 
@@ -19,17 +19,53 @@ export function WeeklyGrid({
   onEditShift,
 }: WeeklyGridProps) {
   const weekDates = getWeekDates(weekOffset);
+  const windows = [
+    { key: 'morning' as const, label: 'בוקר', time: '12:00–19:00' },
+    { key: 'evening' as const, label: 'ערב', time: '19:00–02:00' },
+  ];
 
-  // Map shifts by date
-  const shiftsByDate: Record<string, ShiftWithChatter[]> = {};
+  const shiftsByDateAndWindow: Record<
+    string,
+    { morning: ShiftWithChatter[]; evening: ShiftWithChatter[] }
+  > = {};
   weekDates.forEach((date) => {
-    shiftsByDate[date] = shifts.filter((s) => s.date === date);
+    shiftsByDateAndWindow[date] = { morning: [], evening: [] };
   });
+
+  function getWindowByStartTime(startTime: string) {
+    const hour = Number(startTime.slice(0, 2));
+    if (startTime.startsWith('12:00') || (hour >= 6 && hour < 19)) {
+      return 'morning' as const;
+    }
+    return 'evening' as const;
+  }
+
+  for (const shift of shifts) {
+    if (!shiftsByDateAndWindow[shift.date]) continue;
+    const window = getWindowByStartTime(shift.start_time);
+    shiftsByDateAndWindow[shift.date][window].push(shift);
+  }
 
   // Format header date nicely
   function formatHeaderDate(dateStr: string) {
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
+  }
+
+  function formatWeekLabel() {
+    const start = formatHeaderDate(weekDates[0]);
+    const end = formatHeaderDate(weekDates[6]);
+    return `${start} - ${end}`;
+  }
+
+  function getPlatformBadge(platform: ShiftWithChatter['platform']) {
+    if (platform === 'telegram') {
+      return { label: '📱 טלגרם', className: 'bg-blue-500/20 text-blue-300' };
+    }
+    if (platform === 'onlyfans') {
+      return { label: '🔵 אונלי', className: 'bg-indigo-500/20 text-indigo-300' };
+    }
+    return null;
   }
 
   // Determine if a date is today
@@ -44,7 +80,7 @@ export function WeeklyGrid({
         <h2 className="text-2xl font-bold text-white">{LABELS.schedule}</h2>
 
         {/* Week navigation */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 text-sm">
           <button
             onClick={() => onWeekChange(weekOffset - 1)}
             className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
@@ -64,6 +100,7 @@ export function WeeklyGrid({
           >
             {LABELS.thisWeek}
           </button>
+          <span className="px-2 text-gray-300 font-medium">{formatWeekLabel()}</span>
 
           <button
             onClick={() => onWeekChange(weekOffset + 1)}
@@ -77,111 +114,107 @@ export function WeeklyGrid({
 
       {/* Grid */}
       <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-      <div className="grid grid-cols-7 gap-2 min-w-[700px]">
-        {/* Day headers */}
-        {weekDates.map((date, i) => (
-          <div
-            key={date}
-            className={cn(
-              'text-center pb-2 border-b',
-              isToday(date) ? 'border-blue-500' : 'border-gray-700'
-            )}
-          >
-            <p
+        <div className="grid grid-cols-8 gap-2 min-w-[980px]">
+          <div className="text-center pb-2 border-b border-gray-700" />
+          {weekDates.map((date, i) => (
+            <div
+              key={date}
               className={cn(
-                'text-xs font-semibold mb-1',
-                isToday(date) ? 'text-blue-400' : 'text-gray-400'
+                'text-center pb-2 border-b',
+                isToday(date) ? 'border-blue-500' : 'border-gray-700'
               )}
             >
-              {LABELS.days[i]}
-            </p>
-            <p
-              className={cn(
-                'text-sm font-bold',
-                isToday(date) ? 'text-blue-300' : 'text-gray-300'
-              )}
-            >
-              {formatHeaderDate(date)}
-            </p>
-          </div>
-        ))}
-
-        {/* Shift columns */}
-        {weekDates.map((date) => (
-          <div
-            key={date}
-            className={cn(
-              'min-h-[160px] rounded-lg p-1.5 space-y-1.5 cursor-pointer transition-colors group',
-              isToday(date) ? 'bg-blue-950/30' : 'bg-gray-800/30 hover:bg-gray-800/60'
-            )}
-            onClick={() => onAddShift(date)}
-          >
-            {/* Shifts in this day */}
-            {shiftsByDate[date].map((shift) => (
-              <div
-                key={shift.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditShift(shift);
-                }}
+              <p
                 className={cn(
-                  'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
-                  shift.status === 'active'
-                    ? 'bg-green-900/40'
-                    : shift.status === 'missed'
-                    ? 'bg-red-900/40'
-                    : shift.status === 'completed'
-                    ? 'bg-gray-700/60'
-                    : shift.status === 'pending'
-                    ? 'bg-yellow-900/40'
-                    : shift.status === 'rejected'
-                    ? 'bg-red-950/40 opacity-50'
-                    : 'bg-blue-900/40'
+                  'text-xs font-semibold mb-1',
+                  isToday(date) ? 'text-blue-400' : 'text-gray-400'
                 )}
               >
-                {/* Chatter name + active indicator + platform badge */}
-                <div className="flex items-center gap-1 mb-1">
-                  {shift.status === 'active' && (
-                    <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-                    </span>
-                  )}
-                  <p className="text-xs font-semibold text-white truncate leading-none flex-1">
-                    {shift.chatters?.name ?? '—'}
-                  </p>
-                  {shift.platform && (() => {
-                    const badge = getPlatformBadge(shift.platform);
-                    return badge.label ? (
-                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${badge.className} shrink-0`}>
-                        {badge.label}
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-
-                {/* Time */}
-                <p className="text-xs text-gray-300 font-mono mb-1">
-                  {formatTime(shift.start_time)} – {formatTime(shift.end_time)}
-                </p>
-
-                {/* Model */}
-                {shift.model && (
-                  <p className="text-xs text-gray-400 truncate mb-1">{shift.model}</p>
+                {LABELS.days[i]}
+              </p>
+              <p
+                className={cn(
+                  'text-sm font-bold',
+                  isToday(date) ? 'text-blue-300' : 'text-gray-300'
                 )}
-
-                {/* Status badge */}
-                <StatusBadge status={shift.status} />
-              </div>
-            ))}
-
-            {/* Add shift hint on hover (only when no shifts or as last element) */}
-            <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity py-1">
-              <Plus size={14} className="text-gray-500" />
+              >
+                {formatHeaderDate(date)}
+              </p>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+
+          {windows.map((window) => (
+            <div key={window.key} className="contents">
+              <div
+                className="rounded-lg bg-gray-900/80 border border-gray-800 p-3 flex flex-col justify-center"
+              >
+                <p className="text-sm font-bold text-white">{window.label}</p>
+                <p className="text-xs text-gray-400 mt-1">{window.time}</p>
+              </div>
+              {weekDates.map((date) => (
+                <div
+                  key={`${window.key}-${date}`}
+                  className={cn(
+                    'min-h-[170px] rounded-lg p-2 space-y-2 cursor-pointer transition-colors group border',
+                    isToday(date)
+                      ? 'bg-blue-950/20 border-blue-900/60'
+                      : 'bg-gray-800/30 border-gray-800 hover:bg-gray-800/60'
+                  )}
+                  onClick={() => onAddShift(date, window.key)}
+                >
+                  {shiftsByDateAndWindow[date][window.key].map((shift) => {
+                    const platformBadge = getPlatformBadge(shift.platform);
+                    return (
+                      <div
+                        key={shift.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditShift(shift);
+                        }}
+                        className={cn(
+                          'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
+                          shift.status === 'active'
+                            ? 'bg-green-900/35'
+                            : shift.status === 'completed'
+                              ? 'bg-blue-900/30'
+                              : shift.status === 'missed'
+                                ? 'bg-red-900/35'
+                                : shift.status === 'scheduled'
+                                  ? 'bg-gray-700/50'
+                                  : shift.status === 'pending'
+                                    ? 'bg-yellow-900/30'
+                                    : 'bg-red-950/30'
+                        )}
+                      >
+                        <p className="text-xs font-semibold text-white truncate mb-1">
+                          {shift.chatters?.name ?? '—'}
+                        </p>
+                        {shift.model && (
+                          <p className="text-xs text-gray-300 truncate mb-1">{shift.model}</p>
+                        )}
+                        {platformBadge && (
+                          <span
+                            className={`inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded mb-2 ${platformBadge.className}`}
+                          >
+                            {platformBadge.label}
+                          </span>
+                        )}
+                        <p className="text-[11px] text-gray-400 font-mono mb-1">
+                          {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
+                        </p>
+                        <StatusBadge status={shift.status} />
+                      </div>
+                    );
+                  })}
+
+                  <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity py-1">
+                    <Plus size={14} className="text-gray-500" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -50,7 +50,15 @@ export function ErrorLog() {
   }, [unresolvedOnly]);
 
   useEffect(() => {
-    fetchErrors();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchErrors();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchErrors]);
 
   async function handleMarkResolved(id: string) {

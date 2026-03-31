@@ -195,7 +195,15 @@ export function useAnalytics(): UseAnalyticsReturn {
   }, [fetchStats]);
 
   useEffect(() => {
-    refetch();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void refetch();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [refetch]);
 
   return {

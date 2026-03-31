@@ -1,198 +1,115 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, callEdgeFunction } from '../lib/supabase';
-import type { ChatterSession } from '../lib/types';
+import { supabase } from '../lib/supabase';
 import { LABELS } from '../lib/utils';
-import { LogIn, User } from 'lucide-react';
-
-type LoginTab = 'chatter' | 'admin';
-
-const SESSION_KEY = 'shiftpro-chatter-session';
+import { LogIn } from 'lucide-react';
+import { useToast } from '../hooks/useToast';
+import { ToastContainer } from '../components/shared/ToastContainer';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { toasts, showToast, dismissToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<LoginTab>('chatter');
-
-  // Admin form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Chatter form state
-  const [chatterName, setChatterName] = useState('');
-
-  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
-  const handleAdminSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-
-    try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (authError) {
-        setSubmitting(false);
-        setError(authError.message);
+  useEffect(() => {
+    async function checkExistingSession() {
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
+      if (!user) {
+        setCheckingSession(false);
         return;
       }
 
-      // Check profile role
-      const user = data.user;
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .single();
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
 
-        if (!profile || profile.role !== 'admin') {
-          await supabase.auth.signOut();
-          setSubmitting(false);
-          setError(LABELS.noAdminPermission);
-          return;
-        }
+      if (profile?.role === 'admin') {
+        navigate('/admin', { replace: true });
+      } else if (profile?.role === 'chatter') {
+        navigate('/shift', { replace: true });
+      } else {
+        await supabase.auth.signOut();
+        setCheckingSession(false);
       }
-
-      setSubmitting(false);
-      navigate('/admin', { replace: true });
-    } catch {
-      setSubmitting(false);
-      setError(LABELS.noConnection);
     }
-  };
 
-  const handleChatterSubmit = async (e: FormEvent) => {
+    checkExistingSession();
+  }, [navigate]);
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-
-    const trimmed = chatterName.trim();
-    if (!trimmed) {
-      setError(LABELS.enterName);
-      return;
-    }
-
     setSubmitting(true);
 
-    const result = await callEdgeFunction<{ id: string; name: string; token: string }>(
-      'chatter-login',
-      {
-        method: 'POST',
-        body: JSON.stringify({ name: trimmed }),
-      }
-    );
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
-    setSubmitting(false);
-
-    if (!result.success || !result.data) {
-      setError(result.error ?? LABELS.chatterNotFound);
+    if (authError || !data.user) {
+      showToast('error', 'שם משתמש או סיסמה שגויים');
+      setSubmitting(false);
       return;
     }
 
-    // Save session to localStorage
-    const session: ChatterSession = {
-      chatterId: result.data.id,
-      chatterName: result.data.name,
-      token: result.data.token,
-      loggedInAt: Date.now(),
-    };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role, display_name')
+      .eq('id', data.user.id)
+      .single();
 
-    navigate('/shift', { replace: true });
-  };
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      showToast('error', LABELS.noConnection);
+      setSubmitting(false);
+      return;
+    }
 
-  const switchTab = (tab: LoginTab) => {
-    setActiveTab(tab);
-    setError(null);
+    setSubmitting(false);
+    if (profile.role === 'admin') {
+      navigate('/admin', { replace: true });
+      return;
+    }
+
+    if (profile.role === 'chatter') {
+      navigate('/shift', { replace: true });
+      return;
+    }
+
+    await supabase.auth.signOut();
+    showToast('error', LABELS.noAdminPermission);
   };
 
   const inputClass =
     'w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors';
 
-  return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        {/* Logo / title */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white tracking-tight">ShiftPro</h1>
-          <p className="text-sm text-gray-400 mt-1">{LABELS.shiftManagement}</p>
-        </div>
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400">{LABELS.connecting}</p>
+      </div>
+    );
+  }
 
-        {/* Card */}
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
-          {/* Tab buttons */}
-          <div className="flex border-b border-gray-800">
-            <button
-              type="button"
-              onClick={() => switchTab('chatter')}
-              className={`flex-1 min-h-[48px] py-3 text-sm font-medium transition-colors ${
-                activeTab === 'chatter'
-                  ? 'text-white bg-gray-800/50 border-b-2 border-blue-500'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              <User size={14} className="inline-block ml-1.5 -mt-0.5" />
-              {LABELS.chatterLogin}
-            </button>
-            <button
-              type="button"
-              onClick={() => switchTab('admin')}
-              className={`flex-1 min-h-[48px] py-3 text-sm font-medium transition-colors ${
-                activeTab === 'admin'
-                  ? 'text-white bg-gray-800/50 border-b-2 border-blue-500'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              <LogIn size={14} className="inline-block ml-1.5 -mt-0.5" />
-              {LABELS.adminLogin}
-            </button>
+  return (
+    <>
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-white tracking-tight">
+              ShiftPro — מערכת ניהול משמרות
+            </h1>
           </div>
 
-          <div className="p-8">
-            {activeTab === 'chatter' ? (
-              /* Chatter Login Form */
-              <form onSubmit={handleChatterSubmit} className="space-y-5" noValidate>
-                <div>
-                  <label
-                    htmlFor="chatter-name"
-                    className="block text-sm font-medium text-gray-300 mb-1.5"
-                  >
-                    {LABELS.fullName}
-                  </label>
-                  <input
-                    id="chatter-name"
-                    type="text"
-                    autoComplete="name"
-                    required
-                    value={chatterName}
-                    onChange={(e) => setChatterName(e.target.value)}
-                    className={inputClass}
-                    placeholder={LABELS.enterFullName}
-                  />
-                </div>
-
-                {error && (
-                  <div className="bg-red-900/30 border border-red-700/50 text-red-400 rounded-lg px-4 py-3 text-sm">
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
-                >
-                  <User size={16} />
-                  {submitting ? LABELS.connecting : LABELS.entry}
-                </button>
-              </form>
-            ) : (
-              /* Admin Login Form */
-              <form onSubmit={handleAdminSubmit} className="space-y-5" noValidate>
+          <div className="bg-gray-900 rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
+            <div className="p-8">
+              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                 <div>
                   <label
                     htmlFor="email"
@@ -208,7 +125,7 @@ export function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className={inputClass}
-                    placeholder="admin@example.com"
+                    placeholder="name@example.com"
                   />
                 </div>
 
@@ -231,25 +148,20 @@ export function LoginPage() {
                   />
                 </div>
 
-                {error && (
-                  <div className="bg-red-900/30 border border-red-700/50 text-red-400 rounded-lg px-4 py-3 text-sm">
-                    {error}
-                  </div>
-                )}
-
                 <button
                   type="submit"
                   disabled={submitting}
                   className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold min-h-[48px] py-2.5 rounded-lg text-sm transition-colors"
                 >
                   <LogIn size={16} />
-                  {submitting ? LABELS.connecting : LABELS.login}
+                  {submitting ? LABELS.connecting : 'כניסה'}
                 </button>
               </form>
-            )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+    </>
   );
 }

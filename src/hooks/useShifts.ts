@@ -140,7 +140,15 @@ export function useShifts(): UseShiftsReturn {
 
   // Initial load
   useEffect(() => {
-    fetchShifts();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchShifts();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchShifts]);
 
   const createShift = useCallback(

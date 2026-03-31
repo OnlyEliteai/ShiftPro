@@ -11,7 +11,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const SUPABASE_URL = supabaseUrl;
 
-export async function callEdgeFunction<T = any>(
+type EdgeFunctionPayload<T> = {
+  success?: boolean;
+  error?: string;
+  data?: T;
+} & Record<string, unknown>;
+
+export async function callEdgeFunction<T = unknown>(
   name: string,
   options: RequestInit = {}
 ): Promise<{ success: boolean; data?: T; error?: string }> {
@@ -23,12 +29,12 @@ export async function callEdgeFunction<T = any>(
         ...options.headers,
       },
     });
-    const data = await res.json();
+    const payload = (await res.json()) as EdgeFunctionPayload<T>;
 
-    if (!res.ok || data.success === false) {
-      return { success: false, error: data.error || 'שגיאה בשרת' };
+    if (!res.ok || payload.success === false) {
+      return { success: false, error: payload.error || 'שגיאה בשרת' };
     }
-    return { success: true, data: data.data ?? data };
+    return { success: true, data: (payload.data ?? (payload as T)) };
   } catch {
     return { success: false, error: 'אין חיבור לשרת. נסה שוב.' };
   }

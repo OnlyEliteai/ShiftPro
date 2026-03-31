@@ -43,7 +43,15 @@ export function AdminApproval({ models }: AdminApprovalProps) {
   }, []);
 
   useEffect(() => {
-    fetchPending();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchPending();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchPending]);
 
   // Realtime: refetch when shifts change

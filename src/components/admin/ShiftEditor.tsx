@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import type { Chatter, Model, Shift } from '../../lib/types';
 import { LABELS } from '../../lib/utils';
@@ -6,9 +6,11 @@ import { LABELS } from '../../lib/utils';
 interface ShiftFormData {
   chatter_id: string;
   date: string;
+  shift_type: 'morning' | 'evening';
   start_time: string;
   end_time: string;
   model: string;
+  model_id: string;
   platform: 'telegram' | 'onlyfans' | null;
   status: Shift['status'];
 }
@@ -17,7 +19,10 @@ interface ShiftEditorProps {
   shift?: Shift;
   chatters: Chatter[];
   models: Model[];
+  existingShifts: Shift[];
+  availableDates: string[];
   date?: string;
+  shiftType?: 'morning' | 'evening';
   onSave: (data: ShiftFormData) => void;
   onDelete?: () => void;
   onClose: () => void;
@@ -36,7 +41,10 @@ export function ShiftEditor({
   shift,
   chatters,
   models,
+  existingShifts,
+  availableDates,
   date,
+  shiftType = 'morning',
   onSave,
   onDelete,
   onClose,
@@ -44,13 +52,27 @@ export function ShiftEditor({
   const activeModels = models.filter((m) => m.active);
   const hasModels = activeModels.length > 0;
   const isEditing = !!shift;
+  const inferredShiftType: 'morning' | 'evening' = shift
+    ? shift.start_time.startsWith('19:00')
+      ? 'evening'
+      : 'morning'
+    : shiftType;
+
+  const getTimesByType = (type: 'morning' | 'evening') =>
+    type === 'morning'
+      ? { start_time: '12:00', end_time: '19:00' }
+      : { start_time: '19:00', end_time: '02:00' };
 
   const [form, setForm] = useState<ShiftFormData>({
     chatter_id: shift?.chatter_id ?? (chatters[0]?.id ?? ''),
-    date: shift?.date ?? date ?? new Date().toISOString().split('T')[0],
-    start_time: shift?.start_time ?? '09:00',
-    end_time: shift?.end_time ?? '17:00',
+    date: shift?.date ?? date ?? availableDates[0] ?? new Date().toISOString().split('T')[0],
+    shift_type: inferredShiftType,
+    start_time: shift?.start_time ?? getTimesByType(inferredShiftType).start_time,
+    end_time: shift?.end_time ?? getTimesByType(inferredShiftType).end_time,
     model: shift?.model ?? '',
+    model_id:
+      shift?.model_id ??
+      (shift?.model ? models.find((m) => m.name === shift.model)?.id ?? '' : ''),
     platform: shift?.platform ?? null,
     status: shift?.status ?? 'scheduled',
   });
@@ -58,18 +80,27 @@ export function ShiftEditor({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Keep date in sync if prop changes
-  useEffect(() => {
-    if (!shift && date) {
-      setForm((prev) => ({ ...prev, date }));
-    }
-  }, [date, shift]);
-
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: name === 'platform' && value === '' ? null : value }));
+    if (name === 'shift_type') {
+      const typed = value as 'morning' | 'evening';
+      const times = getTimesByType(typed);
+      setForm((prev) => ({ ...prev, shift_type: typed, ...times }));
+      return;
+    }
+
+    if (name === 'model_id') {
+      const selectedModel = models.find((m) => m.id === value);
+      setForm((prev) => ({ ...prev, model_id: value, model: selectedModel?.name ?? '' }));
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: name === 'platform' && value === '' ? null : value,
+    }));
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -86,19 +117,43 @@ export function ShiftEditor({
       return;
     }
 
-    if (!form.model && hasModels) {
+    if (!form.model_id && hasModels) {
       setValidationError('יש לבחור מודל');
       return;
     }
 
-    // Validate end_time > start_time; equal times are not allowed.
-    // end_time < start_time is permitted (overnight shift).
-    if (form.end_time === form.start_time) {
-      setValidationError('שעת הסיום חייבת להיות שונה משעת ההתחלה');
+    const duplicate = existingShifts.some((existing) => {
+      if (isEditing && existing.id === shift?.id) return false;
+      const matchesWindow =
+        form.shift_type === 'morning'
+          ? existing.start_time.startsWith('12:00')
+          : existing.start_time.startsWith('19:00');
+      return (
+        existing.chatter_id === form.chatter_id &&
+        existing.date === form.date &&
+        matchesWindow &&
+        existing.model_id === form.model_id &&
+        existing.platform === form.platform
+      );
+    });
+
+    if (duplicate) {
+      setValidationError('כבר קיימת משמרת זהה לצ׳אטר, חלון, מודל ופלטפורמה ביום זה');
       return;
     }
 
-    onSave(form);
+    const selectedModel = models.find((m) => m.id === form.model_id);
+    if (!selectedModel) {
+      setValidationError('יש לבחור מודל');
+      return;
+    }
+
+    onSave({
+      ...form,
+      model: selectedModel.name,
+      model_id: selectedModel.id,
+      status: isEditing ? form.status : 'scheduled',
+    });
   }
 
   const inputClass =
@@ -158,18 +213,50 @@ export function ShiftEditor({
             <label htmlFor="date" className={labelClass}>
               {LABELS.date}
             </label>
-            <input
+            <select
               id="date"
-              type="date"
               name="date"
               value={form.date}
               onChange={handleChange}
               className={inputClass}
               required
-            />
+            >
+              {availableDates.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Time range */}
+          {/* Shift type */}
+          <div>
+            <label className={labelClass}>חלון</label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
+                <input
+                  type="radio"
+                  name="shift_type"
+                  value="morning"
+                  checked={form.shift_type === 'morning'}
+                  onChange={handleChange}
+                />
+                <span>בוקר (12:00-19:00)</span>
+              </label>
+              <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
+                <input
+                  type="radio"
+                  name="shift_type"
+                  value="evening"
+                  checked={form.shift_type === 'evening'}
+                  onChange={handleChange}
+                />
+                <span>ערב (19:00-02:00)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Fixed window time display */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label htmlFor="start_time" className={labelClass}>
@@ -180,9 +267,8 @@ export function ShiftEditor({
                 type="time"
                 name="start_time"
                 value={form.start_time}
-                onChange={handleChange}
                 className={inputClass}
-                required
+                readOnly
               />
             </div>
             <div>
@@ -194,49 +280,56 @@ export function ShiftEditor({
                 type="time"
                 name="end_time"
                 value={form.end_time}
-                onChange={handleChange}
                 className={inputClass}
-                required
+                readOnly
               />
             </div>
           </div>
 
           {/* Platform */}
           <div>
-            <label htmlFor="platform" className={labelClass}>
-              {LABELS.platform}
-            </label>
-            <select
-              id="platform"
-              name="platform"
-              value={form.platform ?? ''}
-              onChange={handleChange}
-              className={inputClass}
-              required
-            >
-              <option value="">{LABELS.selectPlatform}</option>
-              <option value="telegram">{LABELS.telegram}</option>
-              <option value="onlyfans">{LABELS.onlyfans}</option>
-            </select>
+            <label className={labelClass}>{LABELS.platform}</label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
+                <input
+                  type="radio"
+                  name="platform"
+                  value="telegram"
+                  checked={form.platform === 'telegram'}
+                  onChange={handleChange}
+                />
+                <span>טלגרם</span>
+              </label>
+              <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
+                <input
+                  type="radio"
+                  name="platform"
+                  value="onlyfans"
+                  checked={form.platform === 'onlyfans'}
+                  onChange={handleChange}
+                />
+                <span>אונלי</span>
+              </label>
+            </div>
           </div>
 
           {/* Model */}
           <div>
-            <label htmlFor="model" className={labelClass}>
+            <label htmlFor="model_id" className={labelClass}>
               {LABELS.model}
             </label>
             {hasModels ? (
               <select
-                id="model"
-                name="model"
-                value={form.model}
+                id="model_id"
+                name="model_id"
+                value={form.model_id}
                 onChange={handleChange}
                 className={inputClass}
                 required
               >
                 <option value="">{LABELS.selectModel}</option>
                 {activeModels.map((m) => (
-                  <option key={m.id} value={m.name}>
+                  <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}

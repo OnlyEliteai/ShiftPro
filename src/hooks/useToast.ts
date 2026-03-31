@@ -21,8 +21,9 @@ export function useToast() {
 
   // Clear pending timeouts on unmount
   useEffect(() => {
+    const activeTimeouts = timeoutIds.current;
     return () => {
-      timeoutIds.current.forEach(clearTimeout);
+      activeTimeouts.forEach(clearTimeout);
     };
   }, []);
 

@@ -65,7 +65,15 @@ export function ReminderLog() {
   }, []);
 
   useEffect(() => {
-    fetchLogs();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchLogs();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchLogs]);
 
   return (

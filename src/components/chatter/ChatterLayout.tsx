@@ -15,14 +15,17 @@ export function ChatterLayout({ chatterName, onLogout, children }: ChatterLayout
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 sticky top-0 z-10">
         <div className="max-w-md sm:max-w-lg lg:max-w-xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400">{chatterName}</span>
+            <span className="text-sm text-gray-300">שלום, {chatterName}</span>
             {onLogout && (
               <button
                 onClick={onLogout}
-                className="text-gray-500 hover:text-gray-300 transition-colors"
+                className="text-xs text-gray-400 hover:text-white transition-colors"
                 title={LABELS.exit}
               >
-                <LogOut size={16} />
+                <span className="inline-flex items-center gap-1">
+                  <LogOut size={14} />
+                  {LABELS.logout}
+                </span>
               </button>
             )}
           </div>

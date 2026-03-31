@@ -39,7 +39,7 @@ export interface ActivityLog {
   chatter_id: string;
   action: 'clock_in' | 'clock_out' | 'auto_missed' | 'manual_override' | 'sign_up' | 'approve' | 'reject';
   timestamp: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export interface ErrorLog {
@@ -48,7 +48,7 @@ export interface ErrorLog {
   node_name: string | null;
   error_message: string;
   error_stack: string | null;
-  input_data: Record<string, any>;
+  input_data: Record<string, unknown>;
   retry_count: number;
   max_retries: number;
   resolved: boolean;

@@ -30,7 +30,15 @@ export function useChatters(): UseChattersReturn {
   }, []);
 
   useEffect(() => {
-    fetchChatters();
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) {
+        void fetchChatters();
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [fetchChatters]);
 
   const createChatter = useCallback(

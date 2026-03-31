@@ -24,6 +24,14 @@ interface ModelData {
   count: number;
 }
 
+interface ShiftAnalyticsRow {
+  chatter_id: string;
+  status: string;
+  date: string;
+  model: string | null;
+  chatters: { name: string }[] | { name: string } | null;
+}
+
 export function Analytics() {
   const [attendance, setAttendance] = useState<AttendanceData[]>([]);
   const [weeklyTrend, setWeeklyTrend] = useState<WeeklyData[]>([]);
@@ -46,10 +54,14 @@ export function Analytics() {
 
       // Per-chatter attendance
       const chatterMap = new Map<string, { name: string; completed: number; missed: number }>();
-      for (const s of shifts || []) {
+      const shiftRows = (shifts ?? []) as unknown as ShiftAnalyticsRow[];
+      for (const s of shiftRows) {
         const key = s.chatter_id;
+        const chatterName = Array.isArray(s.chatters)
+          ? s.chatters[0]?.name
+          : s.chatters?.name;
         if (!chatterMap.has(key)) {
-          chatterMap.set(key, { name: (s as any).chatters?.name || 'Unknown', completed: 0, missed: 0 });
+          chatterMap.set(key, { name: chatterName || 'Unknown', completed: 0, missed: 0 });
         }
         const entry = chatterMap.get(key)!;
         if (s.status === 'completed') entry.completed++;
@@ -71,7 +83,7 @@ export function Analytics() {
 
       // Weekly trend (last 12 weeks)
       const weeklyMap = new Map<string, { completed: number; total: number }>();
-      for (const s of shifts || []) {
+      for (const s of shiftRows) {
         const d = new Date(s.date + 'T00:00:00');
         const weekStart = new Date(d);
         weekStart.setDate(d.getDate() - d.getDay());
@@ -100,7 +112,7 @@ export function Analytics() {
         .not('model', 'is', null);
 
       const modelMap = new Map<string, number>();
-      for (const s of allShifts || []) {
+      for (const s of ((allShifts ?? []) as Array<{ model: string | null }>)) {
         const m = s.model || LABELS.noModel;
         modelMap.set(m, (modelMap.get(m) || 0) + 1);
       }

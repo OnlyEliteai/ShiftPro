@@ -77,6 +77,7 @@ export const LABELS = {
   overviewSubtitle: 'סקירה כללית של מצב המשמרות',
   shiftManagement: 'ניהול משמרות',
   noAdminPermission: 'אין לך הרשאות מנהל',
+  noPermission: 'אין לך הרשאה לצפות בעמוד זה',
   available: 'פנויה',
   activeFor: 'פעיל כבר',
   clockInError: 'שגיאה בכניסה למשמרת',
@@ -185,9 +186,9 @@ export function formatDateFull(date: string): string {
 export function getStatusColor(status: string): string {
   switch (status) {
     case 'pending': return 'bg-yellow-500/20 text-yellow-400';
-    case 'scheduled': return 'bg-blue-500/20 text-blue-400';
+    case 'scheduled': return 'bg-gray-500/20 text-gray-300';
     case 'active': return 'bg-green-500/20 text-green-400';
-    case 'completed': return 'bg-gray-500/20 text-gray-400';
+    case 'completed': return 'bg-blue-500/20 text-blue-400';
     case 'missed': return 'bg-red-500/20 text-red-400';
     case 'rejected': return 'bg-red-700/20 text-red-500 line-through';
     default: return 'bg-gray-500/20 text-gray-400';
