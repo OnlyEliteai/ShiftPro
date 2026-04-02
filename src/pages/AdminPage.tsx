@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useShifts } from '../hooks/useShifts';
 import { useChatters } from '../hooks/useChatters';
-import { useAnalytics } from '../hooks/useAnalytics';
 import { useModels } from '../hooks/useModels';
 import { useToast } from '../hooks/useToast';
 import { AdminLayout } from '../components/admin/AdminLayout';
@@ -53,9 +52,8 @@ type Tab =
 export function AdminPage() {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading, signOut } = useAdminAuth();
-  const { shifts, createShift, updateShift, deleteShift } = useShifts();
-  const { chatters, createChatter, deleteChatter, toggleActive } = useChatters();
-  const { stats, loading: analyticsLoading } = useAnalytics();
+  const { shifts, loading: shiftsLoading, createShift, updateShift, deleteShift } = useShifts();
+  const { chatters, loading: chattersLoading, createChatter, deleteChatter, toggleActive } = useChatters();
   const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
 
@@ -74,6 +72,35 @@ export function AdminPage() {
     () => shifts.filter((shift) => shift.status === 'pending').length,
     [shifts]
   );
+  const dashboardStats = useMemo(() => {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const thirtyDaysAgoDate = new Date(now);
+    thirtyDaysAgoDate.setDate(now.getDate() - 30);
+    const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().split('T')[0];
+
+    const totalChatters = chatters.filter((chatter) => chatter.active).length;
+    const currentlyOnShift = shifts.filter(
+      (shift) => shift.date === today && shift.status === 'active'
+    ).length;
+    const todayShifts = shifts.filter(
+      (shift) => shift.date === today && ['scheduled', 'active', 'completed'].includes(shift.status)
+    ).length;
+
+    const trackedWindow = shifts.filter((shift) => shift.date >= thirtyDaysAgo);
+    const completed = trackedWindow.filter((shift) => shift.status === 'completed').length;
+    const missed = trackedWindow.filter((shift) => shift.status === 'missed').length;
+    const trackedTotal = completed + missed;
+
+    return {
+      totalChatters,
+      currentlyOnShift,
+      todayShifts,
+      attendanceRate: trackedTotal > 0 ? Math.round((completed / trackedTotal) * 100) : 0,
+      missRate: trackedTotal > 0 ? Math.round((missed / trackedTotal) * 100) : 0,
+      pendingApprovals: pendingCount,
+    };
+  }, [chatters, shifts, pendingCount]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -196,11 +223,14 @@ export function AdminPage() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return analyticsLoading ? (
+        return shiftsLoading || chattersLoading ? (
           <LoadingSpinner />
         ) : (
           <div className="p-4 sm:p-6">
-            <Dashboard stats={stats} />
+            <Dashboard
+              stats={dashboardStats}
+              onPendingApprovalsClick={() => setActiveTab('approval')}
+            />
             <MonthlyGoalsSection chatters={chatters} showToast={showToast} />
           </div>
         );

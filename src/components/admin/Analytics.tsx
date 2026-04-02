@@ -144,6 +144,7 @@ export function Analytics() {
   const [modelCoverage, setModelCoverage] = useState<ModelData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 639px)').matches);
   const refreshTimeoutRef = useRef<number | null>(null);
 
   const fetchAnalytics = useCallback(async (mode: 'initial' | 'refresh' = 'refresh') => {
@@ -257,6 +258,16 @@ export function Analytics() {
   }, [fetchAnalytics]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobile(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener('change', update);
+    return () => {
+      mediaQuery.removeEventListener('change', update);
+    };
+  }, []);
+
+  useEffect(() => {
     const scheduleRefetch = () => {
       if (refreshTimeoutRef.current) {
         window.clearTimeout(refreshTimeoutRef.current);
@@ -284,7 +295,7 @@ export function Analytics() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div className="space-y-8 p-4 sm:p-6">
+    <div className="w-full max-w-4xl mx-auto space-y-4 sm:space-y-6 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold">{LABELS.analytics}</h2>
         <button
@@ -297,57 +308,75 @@ export function Analytics() {
         </button>
       </div>
 
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-semibold mb-4">{LABELS.attendanceByChatter} לפי צ׳אטר (30 יום)</h3>
         {attendance.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={attendance} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis type="number" domain={[0, 100]} tick={{ fill: '#9ca3af' }} unit="%" />
-              <YAxis type="category" dataKey="name" tick={{ fill: '#9ca3af' }} width={120} />
-              <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: 8, color: '#fff' }} />
-              <Bar dataKey="rate" fill="#3b82f6" radius={[0, 4, 4, 0]} name="אחוז נוכחות" />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="w-full overflow-x-auto sm:overflow-visible">
+            <div className="min-w-[600px] sm:min-w-0 h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={attendance} margin={{ top: 8, right: 8, left: 0, bottom: isMobile ? 70 : 28 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: '#9ca3af', fontSize: isMobile ? 10 : 12 }}
+                    angle={isMobile ? -45 : 0}
+                    textAnchor={isMobile ? 'end' : 'middle'}
+                    height={isMobile ? 60 : 28}
+                    interval={0}
+                  />
+                  <YAxis domain={[0, 100]} tick={{ fill: '#9ca3af', fontSize: isMobile ? 10 : 12 }} unit="%" />
+                  <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: 8, color: '#fff' }} />
+                  <Bar dataKey="rate" fill="#3b82f6" radius={[4, 4, 0, 0]} name="אחוז נוכחות" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         ) : (
           <p className="text-gray-400 text-center py-8">{LABELS.noDataYet}</p>
         )}
       </div>
 
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-semibold mb-4">{LABELS.weeklyTrend}</h3>
         {weeklyTrend.length > 0 ? (
-          <ResponsiveContainer width="100%" height={340}>
-            <BarChart data={weeklyTrend} margin={{ top: 8, right: 8, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis
-                dataKey="dayLabel"
-                tick={{ fill: '#9ca3af', fontSize: 11 }}
-                interval={4}
-              />
-              <YAxis tick={{ fill: '#9ca3af' }} allowDecimals={false} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: 8, color: '#fff' }}
-                labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDateLabel ?? ''}
-              />
-              <Bar stackId="shifts" dataKey="scheduled" fill="#3b82f6" name="מתוכננות" />
-              <Bar stackId="shifts" dataKey="completed" fill="#22c55e" name="הושלמו" />
-              <Bar stackId="shifts" dataKey="missed" fill="#ef4444" name="פספוסים" />
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="w-full overflow-x-auto sm:overflow-visible">
+            <div className="min-w-[600px] sm:min-w-0 h-[340px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyTrend} margin={{ top: 8, right: 8, left: 0, bottom: isMobile ? 72 : 32 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="dayLabel"
+                    tick={{ fill: '#9ca3af', fontSize: isMobile ? 10 : 12 }}
+                    angle={isMobile ? -45 : 0}
+                    textAnchor={isMobile ? 'end' : 'middle'}
+                    height={isMobile ? 60 : 28}
+                    interval={isMobile ? 2 : 0}
+                  />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: isMobile ? 10 : 12 }} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: 8, color: '#fff' }}
+                    labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDateLabel ?? ''}
+                  />
+                  <Bar stackId="shifts" dataKey="scheduled" fill="#3b82f6" name="מתוכננות" />
+                  <Bar stackId="shifts" dataKey="completed" fill="#22c55e" name="הושלמו" />
+                  <Bar stackId="shifts" dataKey="missed" fill="#ef4444" name="פספוסים" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         ) : (
           <p className="text-gray-400 text-center py-8">{LABELS.noDataYet}</p>
         )}
       </div>
 
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-gray-800 rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-semibold mb-4">{LABELS.modelCoverage}</h3>
         {modelCoverage.length > 0 ? (
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
-            <div className="w-full lg:w-2/3 h-[260px]">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6">
+            <div className="w-full sm:w-1/2 aspect-square min-h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={modelCoverage} dataKey="count" nameKey="model" cx="50%" cy="50%" outerRadius={92}>
+                  <Pie data={modelCoverage} dataKey="count" nameKey="model" cx="50%" cy="50%" outerRadius={isMobile ? 100 : 92}>
                     {modelCoverage.map((_, i) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
@@ -356,7 +385,7 @@ export function Analytics() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="w-full lg:w-1/3 space-y-2 lg:text-right">
+            <div className="w-full sm:w-1/2 space-y-2 sm:text-right">
               {modelCoverage.map((m, i) => (
                 <div key={m.model} className="flex items-center gap-2 text-sm">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
