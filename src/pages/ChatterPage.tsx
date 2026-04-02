@@ -164,6 +164,22 @@ function getSlotKey(
   return `${date}|${shiftType}`;
 }
 
+interface GroupedAvailableSlot {
+  key: string;
+  date: string;
+  shift_type: ShiftSlot['shift_type'];
+  total_capacity: number;
+  occupied: number;
+  is_full: boolean;
+  chatter_signed_up: boolean;
+  signup_slot_id: string | null;
+  queue_slot_id: string | null;
+}
+
+function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
+  return shiftType === 'morning' ? 0 : 1;
+}
+
 function formatHebrewDate(dateString: string) {
   const [year, month, day] = dateString.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
@@ -225,8 +241,7 @@ export function ChatterPage() {
   const [monthlyGoal, setMonthlyGoal] = useState<number | null>(null);
   const [monthlyEarned, setMonthlyEarned] = useState(0);
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
-  const [futureOwnShifts, setFutureOwnShifts] = useState<Shift[]>([]);
-  const [availableSlots, setAvailableSlots] = useState<ShiftSlot[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<GroupedAvailableSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotActionId, setSlotActionId] = useState<string | null>(null);
   const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
@@ -239,23 +254,13 @@ export function ChatterPage() {
     activeShift?.clocked_in
       ? formatElapsedDuration(activeShift.clocked_in, currentTimestamp)
       : '';
-  const signedSlotKeys = useMemo(() => {
-    return new Set(
-      futureOwnShifts.map((shift) =>
-        getSlotKey(
-          shift.date,
-          getShiftTypeByStartTime(shift.start_time)
-        )
-      )
-    );
-  }, [futureOwnShifts]);
 
   const fetchShiftData = useCallback(async () => {
     if (!chatter) return;
     setLoadingShifts(true);
 
     const today = getIsraelTodayDateKey();
-    const [weeklyRes, upcomingRes, activeRes, ownFutureRes] = await Promise.all([
+    const [weeklyRes, upcomingRes, activeRes] = await Promise.all([
       supabase
         .from('shifts')
         .select('*')
@@ -281,17 +286,9 @@ export function ChatterPage() {
         .order('start_time', { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from('shifts')
-        .select('*')
-        .eq('chatter_id', chatter.id)
-        .in('status', ['pending', 'scheduled', 'active'])
-        .gte('date', today)
-        .order('date', { ascending: true })
-        .order('start_time', { ascending: true }),
     ]);
 
-    if (weeklyRes.error || upcomingRes.error || activeRes.error || ownFutureRes.error) {
+    if (weeklyRes.error || upcomingRes.error || activeRes.error) {
       showToast('error', LABELS.noConnection);
       setLoadingShifts(false);
       return;
@@ -305,7 +302,6 @@ export function ChatterPage() {
     setWeeklyShifts(weeklyData);
     setNextShift(nearestFutureShift);
     setActiveShift((activeRes.data as Shift | null) ?? null);
-    setFutureOwnShifts((ownFutureRes.data ?? []) as Shift[]);
     setLoadingShifts(false);
   }, [chatter, weekRange.end, weekRange.start, showToast]);
 
@@ -370,7 +366,8 @@ export function ChatterPage() {
       .gte('date', today)
       .in('status', ['open', 'full'])
       .order('date', { ascending: true })
-      .order('shift_type', { ascending: true });
+      .order('shift_type', { ascending: true })
+      .order('created_at', { ascending: true });
 
     if (slotsError) {
       showToast('error', LABELS.noConnection);
@@ -378,18 +375,94 @@ export function ChatterPage() {
       return;
     }
 
-    setAvailableSlots((data ?? []) as ShiftSlot[]);
+    const slotRows = (data ?? []) as ShiftSlot[];
+    if (slotRows.length === 0) {
+      setAvailableSlots([]);
+      setLoadingSlots(false);
+      return;
+    }
+
+    const { data: occupancyData, error: occupancyError } = await supabase
+      .from('shifts')
+      .select('chatter_id, date, start_time, status')
+      .gte('date', today)
+      .in('status', ['pending', 'scheduled', 'active']);
+
+    if (occupancyError) {
+      showToast('error', LABELS.noConnection);
+      setLoadingSlots(false);
+      return;
+    }
+
+    const grouped = new Map<string, GroupedAvailableSlot>();
+    for (const slot of slotRows) {
+      const key = getSlotKey(slot.date, slot.shift_type);
+      const existing = grouped.get(key);
+      if (!existing) {
+        grouped.set(key, {
+          key,
+          date: slot.date,
+          shift_type: slot.shift_type,
+          total_capacity: 1,
+          occupied: 0,
+          is_full: false,
+          chatter_signed_up: false,
+          signup_slot_id: slot.status === 'open' ? slot.id : null,
+          queue_slot_id: slot.id,
+        });
+        continue;
+      }
+
+      existing.total_capacity += 1;
+      if (!existing.signup_slot_id && slot.status === 'open') {
+        existing.signup_slot_id = slot.id;
+      }
+    }
+
+    for (const shift of (occupancyData ?? []) as Pick<Shift, 'chatter_id' | 'date' | 'start_time'>[]) {
+      const shiftType = getShiftTypeByStartTime(shift.start_time);
+      const key = getSlotKey(shift.date, shiftType);
+      const target = grouped.get(key);
+      if (!target) continue;
+
+      target.occupied += 1;
+      if (shift.chatter_id === chatter.id) {
+        target.chatter_signed_up = true;
+      }
+    }
+
+    const groupedSlots = Array.from(grouped.values())
+      .map((slotGroup) => ({
+        ...slotGroup,
+        is_full: slotGroup.occupied >= slotGroup.total_capacity,
+      }))
+      .sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || getShiftTypeOrder(a.shift_type) - getShiftTypeOrder(b.shift_type)
+      );
+
+    setAvailableSlots(groupedSlots);
     setLoadingSlots(false);
   }, [chatter, showToast]);
 
-  async function handleSignUpToSlot(slot: ShiftSlot) {
+  async function handleSignUpToSlot(slotGroup: GroupedAvailableSlot) {
     if (!chatter) return;
-    setSlotActionId(slot.id);
+    const latestGroup = availableSlots.find((slot) => slot.key === slotGroup.key) ?? slotGroup;
+    if (latestGroup.chatter_signed_up) {
+      showToast('info', 'כבר נרשמת למשמרת זו');
+      return;
+    }
+    if (latestGroup.is_full || !latestGroup.signup_slot_id) {
+      showToast('error', LABELS.shiftTaken);
+      return;
+    }
 
-    const timeWindow = getSlotTimeWindow(slot.shift_type);
+    setSlotActionId(latestGroup.key);
+
+    const timeWindow = getSlotTimeWindow(latestGroup.shift_type);
     const { error: insertError } = await supabase.from('shifts').insert({
       chatter_id: chatter.id,
-      date: slot.date,
+      date: latestGroup.date,
       start_time: timeWindow.start,
       end_time: timeWindow.end,
       model: null,
@@ -406,7 +479,7 @@ export function ChatterPage() {
     await supabase.from('activity_log').insert({
       chatter_id: chatter.id,
       action: 'sign_up',
-      metadata: { slot_id: slot.id },
+      metadata: { slot_id: latestGroup.signup_slot_id, slot_group: latestGroup.key },
     });
 
     showToast('success', LABELS.signedUp);
@@ -415,10 +488,15 @@ export function ChatterPage() {
     await fetchAvailableSlots();
   }
 
-  async function handleJoinQueue(slot: ShiftSlot) {
-    setSlotActionId(slot.id);
+  async function handleJoinQueue(slotGroup: GroupedAvailableSlot) {
+    if (!slotGroup.queue_slot_id) {
+      showToast('error', LABELS.serverError);
+      return;
+    }
+
+    setSlotActionId(slotGroup.key);
     const { data, error: queueError } = await supabase.rpc('join_shift_queue_for_slot', {
-      p_slot_id: slot.id,
+      p_slot_id: slotGroup.queue_slot_id,
     });
 
     if (queueError) {
@@ -648,7 +726,7 @@ export function ChatterPage() {
   const monthlyProgressPercent =
     monthlyGoal && monthlyGoal > 0 ? Math.min(100, (monthlyEarned / monthlyGoal) * 100) : 0;
   const availableSlotsByDate = useMemo(() => {
-    const grouped = new Map<string, ShiftSlot[]>();
+    const grouped = new Map<string, GroupedAvailableSlot[]>();
     for (const slot of availableSlots) {
       const entry = grouped.get(slot.date) ?? [];
       entry.push(slot);
@@ -914,22 +992,21 @@ export function ChatterPage() {
                 {Array.from(availableSlotsByDate.entries()).map(([date, slots]) => (
                   <div key={date} className="space-y-2">
                     <p className="text-sm font-semibold text-gray-200">{formatHebrewDate(date)}</p>
-                    {slots.map((slot) => {
-                      const slotKey = getSlotKey(date, slot.shift_type);
-                      const isSigned = signedSlotKeys.has(slotKey);
-                      const isFull = slot.status === 'full';
-                      const isActing = slotActionId === slot.id;
-                      const timeWindow = getSlotTimeWindow(slot.shift_type);
+                    {slots.map((slotGroup) => {
+                      const isSigned = slotGroup.chatter_signed_up;
+                      const isFull = slotGroup.is_full;
+                      const isActing = slotActionId === slotGroup.key;
+                      const timeWindow = getSlotTimeWindow(slotGroup.shift_type);
 
                       return (
                         <article
-                          key={slot.id}
+                          key={slotGroup.key}
                           className="rounded-xl border border-gray-800 bg-gray-800/40 p-3"
                         >
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div>
                               <p className="text-sm font-semibold text-white">
-                                {getSlotTypeLabel(slot.shift_type)} {timeWindow.start}-{timeWindow.end}
+                                {getSlotTypeLabel(slotGroup.shift_type)} {timeWindow.start}-{timeWindow.end}
                               </p>
                             </div>
                             {isSigned ? (
@@ -937,7 +1014,7 @@ export function ChatterPage() {
                                 נרשמת
                               </span>
                             ) : isFull ? (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300">
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-300">
                                 מלא
                               </span>
                             ) : (
@@ -949,7 +1026,7 @@ export function ChatterPage() {
 
                           {isSigned ? null : isFull ? (
                             <button
-                              onClick={() => void handleJoinQueue(slot)}
+                              onClick={() => void handleJoinQueue(slotGroup)}
                               disabled={isActing}
                               className="w-full min-h-[40px] rounded-lg bg-yellow-600 hover:bg-yellow-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium"
                             >
@@ -957,7 +1034,7 @@ export function ChatterPage() {
                             </button>
                           ) : (
                             <button
-                              onClick={() => void handleSignUpToSlot(slot)}
+                              onClick={() => void handleSignUpToSlot(slotGroup)}
                               disabled={isActing}
                               className="w-full min-h-[40px] rounded-lg bg-[#1D9E75] hover:bg-[#188561] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium"
                             >
