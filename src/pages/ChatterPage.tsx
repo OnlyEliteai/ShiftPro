@@ -8,7 +8,7 @@ import { LABELS, formatTime, cn } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
 import { supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import type { Model, Shift } from '../lib/types';
+import type { Model, Shift, ShiftSlot } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
@@ -140,6 +140,32 @@ function getPlatformLabel(platform: Shift['platform']) {
   return 'לא צוין';
 }
 
+function getSlotTypeLabel(shiftType: ShiftSlot['shift_type']) {
+  return shiftType === 'morning' ? 'בוקר' : 'ערב';
+}
+
+function getSlotTimeWindow(shiftType: ShiftSlot['shift_type']) {
+  if (shiftType === 'morning') {
+    return { start: '12:00', end: '19:00' };
+  }
+  return { start: '19:00', end: '02:00' };
+}
+
+function getShiftTypeByStartTime(startTime: string): ShiftSlot['shift_type'] {
+  if (startTime.startsWith('12:00')) return 'morning';
+  if (startTime.startsWith('19:00')) return 'evening';
+  return Number(startTime.slice(0, 2)) < 19 ? 'morning' : 'evening';
+}
+
+function getSlotKey(
+  date: string,
+  shiftType: ShiftSlot['shift_type'],
+  model: string | null,
+  platform: Shift['platform']
+) {
+  return `${date}|${shiftType}|${model ?? ''}|${platform ?? ''}`;
+}
+
 function formatHebrewDate(dateString: string) {
   const [year, month, day] = dateString.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
@@ -201,6 +227,10 @@ export function ChatterPage() {
   const [monthlyGoal, setMonthlyGoal] = useState<number | null>(null);
   const [monthlyEarned, setMonthlyEarned] = useState(0);
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
+  const [futureOwnShifts, setFutureOwnShifts] = useState<Shift[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<ShiftSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotActionId, setSlotActionId] = useState<string | null>(null);
   const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const weekRange = useMemo(() => getIsraelWeekRange(), []);
@@ -211,13 +241,25 @@ export function ChatterPage() {
     activeShift?.clocked_in
       ? formatElapsedDuration(activeShift.clocked_in, currentTimestamp)
       : '';
+  const signedSlotKeys = useMemo(() => {
+    return new Set(
+      futureOwnShifts.map((shift) =>
+        getSlotKey(
+          shift.date,
+          getShiftTypeByStartTime(shift.start_time),
+          shift.model,
+          shift.platform
+        )
+      )
+    );
+  }, [futureOwnShifts]);
 
   const fetchShiftData = useCallback(async () => {
     if (!chatter) return;
     setLoadingShifts(true);
 
     const today = getIsraelTodayDateKey();
-    const [weeklyRes, upcomingRes, activeRes] = await Promise.all([
+    const [weeklyRes, upcomingRes, activeRes, ownFutureRes] = await Promise.all([
       supabase
         .from('shifts')
         .select('*')
@@ -243,9 +285,17 @@ export function ChatterPage() {
         .order('start_time', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('shifts')
+        .select('*')
+        .eq('chatter_id', chatter.id)
+        .in('status', ['pending', 'scheduled', 'active'])
+        .gte('date', today)
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true }),
     ]);
 
-    if (weeklyRes.error || upcomingRes.error || activeRes.error) {
+    if (weeklyRes.error || upcomingRes.error || activeRes.error || ownFutureRes.error) {
       showToast('error', LABELS.noConnection);
       setLoadingShifts(false);
       return;
@@ -259,6 +309,7 @@ export function ChatterPage() {
     setWeeklyShifts(weeklyData);
     setNextShift(nearestFutureShift);
     setActiveShift((activeRes.data as Shift | null) ?? null);
+    setFutureOwnShifts((ownFutureRes.data ?? []) as Shift[]);
     setLoadingShifts(false);
   }, [chatter, weekRange.end, weekRange.start, showToast]);
 
@@ -312,6 +363,95 @@ export function ChatterPage() {
     setMonthlyGoal(goalData ? Number(goalData.goal_amount ?? 0) : null);
   }, [chatter, showToast]);
 
+  const fetchAvailableSlots = useCallback(async () => {
+    if (!chatter) return;
+    setLoadingSlots(true);
+    const today = getIsraelTodayDateKey();
+
+    const { data, error: slotsError } = await supabase
+      .from('shift_slots')
+      .select('*')
+      .gte('date', today)
+      .in('status', ['open', 'full'])
+      .order('date', { ascending: true })
+      .order('shift_type', { ascending: true });
+
+    if (slotsError) {
+      showToast('error', LABELS.noConnection);
+      setLoadingSlots(false);
+      return;
+    }
+
+    setAvailableSlots((data ?? []) as ShiftSlot[]);
+    setLoadingSlots(false);
+  }, [chatter, showToast]);
+
+  async function handleSignUpToSlot(slot: ShiftSlot) {
+    if (!chatter) return;
+    setSlotActionId(slot.id);
+
+    const timeWindow = getSlotTimeWindow(slot.shift_type);
+    const { error: insertError } = await supabase.from('shifts').insert({
+      chatter_id: chatter.id,
+      date: slot.date,
+      start_time: timeWindow.start,
+      end_time: timeWindow.end,
+      model: slot.model,
+      platform: slot.platform,
+      status: 'pending',
+    });
+
+    if (insertError) {
+      showToast('error', insertError.message || LABELS.serverError);
+      setSlotActionId(null);
+      return;
+    }
+
+    await supabase.from('activity_log').insert({
+      chatter_id: chatter.id,
+      action: 'sign_up',
+      metadata: { slot_id: slot.id },
+    });
+
+    showToast('success', LABELS.signedUp);
+    setSlotActionId(null);
+    await fetchShiftData();
+    await fetchAvailableSlots();
+  }
+
+  async function handleJoinQueue(slot: ShiftSlot) {
+    setSlotActionId(slot.id);
+    const { data, error: queueError } = await supabase.rpc('join_shift_queue_for_slot', {
+      p_slot_id: slot.id,
+    });
+
+    if (queueError) {
+      showToast('error', queueError.message || LABELS.serverError);
+      setSlotActionId(null);
+      return;
+    }
+
+    const queueResult = data as { alreadyQueued?: boolean; position?: number } | null;
+    if (queueResult?.alreadyQueued) {
+      showToast(
+        'info',
+        queueResult.position
+          ? `${LABELS.inQueue} (${LABELS.queuePosition} ${queueResult.position})`
+          : LABELS.inQueue
+      );
+    } else {
+      showToast(
+        'success',
+        queueResult?.position
+          ? `${LABELS.joinedQueue} (${LABELS.queuePosition} ${queueResult.position})`
+          : LABELS.joinedQueue
+      );
+    }
+
+    setSlotActionId(null);
+    await fetchAvailableSlots();
+  }
+
   useEffect(() => {
     if (!loading && error === 'NO_AUTH') {
       navigate('/login', { replace: true });
@@ -336,12 +476,13 @@ export function ChatterPage() {
         void fetchShiftData();
         void fetchModels();
         void fetchMonthlyProgress();
+        void fetchAvailableSlots();
       }
     });
     return () => {
       active = false;
     };
-  }, [chatter, fetchShiftData, fetchModels, fetchMonthlyProgress]);
+  }, [chatter, fetchShiftData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots]);
 
   // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
   useEffect(() => {
@@ -352,7 +493,10 @@ export function ChatterPage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shifts', filter: `chatter_id=eq.${chatter.id}` },
-        () => { void fetchShiftData(); }
+        () => {
+          void fetchShiftData();
+          void fetchAvailableSlots();
+        }
       )
       .on(
         'postgres_changes',
@@ -364,12 +508,17 @@ export function ChatterPage() {
         { event: '*', schema: 'public', table: 'daily_summaries', filter: `chatter_id=eq.${chatter.id}` },
         () => { void fetchMonthlyProgress(); }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shift_slots' },
+        () => { void fetchAvailableSlots(); }
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatter, fetchShiftData, fetchMonthlyProgress]);
+  }, [chatter, fetchShiftData, fetchMonthlyProgress, fetchAvailableSlots]);
 
   const handleLogout = () => {
     logout();
@@ -502,6 +651,15 @@ export function ChatterPage() {
 
   const monthlyProgressPercent =
     monthlyGoal && monthlyGoal > 0 ? Math.min(100, (monthlyEarned / monthlyGoal) * 100) : 0;
+  const availableSlotsByDate = useMemo(() => {
+    const grouped = new Map<string, ShiftSlot[]>();
+    for (const slot of availableSlots) {
+      const entry = grouped.get(slot.date) ?? [];
+      entry.push(slot);
+      grouped.set(slot.date, entry);
+    }
+    return grouped;
+  }, [availableSlots]);
 
   if (loading) {
     return (
@@ -736,6 +894,79 @@ export function ChatterPage() {
                     </article>
                   );
                 })}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+            <h2 className="text-base font-bold text-white mb-3">משמרות זמינות</h2>
+            {loadingSlots ? (
+              <LoadingSpinner />
+            ) : availableSlotsByDate.size === 0 ? (
+              <p className="text-sm text-gray-400">{LABELS.noAvailableShifts}</p>
+            ) : (
+              <div className="space-y-4">
+                {Array.from(availableSlotsByDate.entries()).map(([date, slots]) => (
+                  <div key={date} className="space-y-2">
+                    <p className="text-sm font-semibold text-gray-200">{formatHebrewDate(date)}</p>
+                    {slots.map((slot) => {
+                      const slotKey = getSlotKey(date, slot.shift_type, slot.model, slot.platform);
+                      const isSigned = signedSlotKeys.has(slotKey);
+                      const isFull = slot.status === 'full';
+                      const isActing = slotActionId === slot.id;
+                      const timeWindow = getSlotTimeWindow(slot.shift_type);
+
+                      return (
+                        <article
+                          key={slot.id}
+                          className="rounded-xl border border-gray-800 bg-gray-800/40 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                {getSlotTypeLabel(slot.shift_type)} {timeWindow.start}-{timeWindow.end}
+                              </p>
+                              <p className="text-xs text-gray-300">
+                                {slot.model ?? LABELS.noModel} • {getPlatformLabel(slot.platform)}
+                              </p>
+                            </div>
+                            {isSigned ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
+                                נרשמת
+                              </span>
+                            ) : isFull ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-300">
+                                מלא
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300">
+                                פנוי
+                              </span>
+                            )}
+                          </div>
+
+                          {isSigned ? null : isFull ? (
+                            <button
+                              onClick={() => void handleJoinQueue(slot)}
+                              disabled={isActing}
+                              className="w-full min-h-[40px] rounded-lg bg-yellow-600 hover:bg-yellow-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium"
+                            >
+                              {isActing ? '...' : LABELS.joinQueue}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => void handleSignUpToSlot(slot)}
+                              disabled={isActing}
+                              className="w-full min-h-[40px] rounded-lg bg-[#1D9E75] hover:bg-[#188561] disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium"
+                            >
+                              {isActing ? '...' : 'הירשם'}
+                            </button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </section>

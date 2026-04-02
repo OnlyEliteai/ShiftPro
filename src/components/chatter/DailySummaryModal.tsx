@@ -19,15 +19,18 @@ interface ModelAssignmentState {
   onlyfans: boolean;
 }
 
-function getDayOfWeekHebrew(date: string) {
-  const day = new Date(`${date}T00:00:00`).getDay();
-  const map = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+function getDayOfWeekHebrew(date: string): string {
+  const map = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'] as const;
+  const [y, m, d] = date.split('-').map(Number);
+  // Use UTC constructor to avoid timezone shifts changing the day
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return map[day];
 }
 
-function getShiftType(startTime: string): 'morning' | 'evening' {
-  if (startTime.startsWith('12:00')) return 'morning';
-  return 'evening';
+function getShiftType(startTime: string): 'בוקר' | 'ערב' {
+  if (startTime.startsWith('12:00')) return 'בוקר';
+  if (startTime.startsWith('19:00')) return 'ערב';
+  return 'ערב';
 }
 
 export function DailySummaryModal({
@@ -199,7 +202,6 @@ export function DailySummaryModal({
       income_telegram: incomeTelegram,
       income_onlyfans: incomeOnlyfans,
       income_other: incomeOther,
-      income_total: totalIncome,
       all_deposits_verified: allDepositsVerified ?? false,
       improvement_suggestions: improvementSuggestions,
       content_request: contentRequest || null,
@@ -208,7 +210,8 @@ export function DailySummaryModal({
     });
 
     if (summaryError) {
-      showToast('error', 'שגיאה בשליחת הסיכום');
+      console.error('[DailySummary] insert failed:', summaryError.message, summaryError.details, summaryError.hint);
+      showToast('error', `שגיאה בשליחת הסיכום: ${summaryError.message}`);
       setSubmitting(false);
       return;
     }
@@ -279,7 +282,7 @@ export function DailySummaryModal({
               </div>
               <div className="bg-gray-800 rounded-lg p-3">
                 <p className="text-gray-400">חלון פעילות</p>
-                <p className="text-white">{getShiftType(shift.start_time) === 'morning' ? 'בוקר' : 'ערב'}</p>
+                <p className="text-white">{getShiftType(shift.start_time)}</p>
               </div>
             </div>
 

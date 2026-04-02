@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { useShifts } from '../hooks/useShifts';
@@ -6,7 +6,6 @@ import { useChatters } from '../hooks/useChatters';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { useModels } from '../hooks/useModels';
 import { useToast } from '../hooks/useToast';
-import { supabase } from '../lib/supabase';
 import { AdminLayout } from '../components/admin/AdminLayout';
 import { Dashboard } from '../components/admin/Dashboard';
 import { WeeklyGrid } from '../components/admin/WeeklyGrid';
@@ -69,39 +68,12 @@ export function AdminPage() {
   const [editorShiftType, setEditorShiftType] = useState<'morning' | 'evening'>('morning');
   const [showEditor, setShowEditor] = useState(false);
 
-  // Pending count for approval badge
-  const [pendingCount, setPendingCount] = useState(0);
-
   // Unresolved error count for badge
   const unresolvedErrorCount = 0;
-
-  // Fetch pending count
-  useEffect(() => {
-    async function fetchPendingCount() {
-      const { count } = await supabase
-        .from('shifts')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      setPendingCount(count ?? 0);
-    }
-    fetchPendingCount();
-
-    // Realtime: update pending count when shifts change
-    const channel = supabase
-      .channel('pending-count')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'shifts' },
-        () => {
-          fetchPendingCount();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+  const pendingCount = useMemo(
+    () => shifts.filter((shift) => shift.status === 'pending').length,
+    [shifts]
+  );
 
   // Redirect to login if not authenticated
   useEffect(() => {

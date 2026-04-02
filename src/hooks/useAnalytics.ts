@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface AttendanceRate {
@@ -48,6 +48,7 @@ export function useAnalytics(): UseAnalyticsReturn {
   const [attendanceRates, setAttendanceRates] = useState<AttendanceRate[]>([]);
   const [weeklyWorkload, setWeeklyWorkload] = useState<WeeklyWorkload[]>([]);
   const [loading, setLoading] = useState(true);
+  const refreshTimeoutRef = useRef<number | null>(null);
 
   const getAttendanceRate = useCallback(async (days = 30): Promise<AttendanceRate[]> => {
     const since = new Date();
@@ -189,22 +190,47 @@ export function useAnalytics(): UseAnalyticsReturn {
   }, [getAttendanceRate, getWeeklyWorkload]);
 
   const refetch = useCallback(async () => {
-    setLoading(true);
     await fetchStats();
-    setLoading(false);
   }, [fetchStats]);
 
   useEffect(() => {
     let active = true;
     Promise.resolve().then(() => {
       if (active) {
-        void refetch();
+        void fetchStats().finally(() => {
+          if (active) setLoading(false);
+        });
       }
     });
     return () => {
       active = false;
     };
-  }, [refetch]);
+  }, [fetchStats]);
+
+  useEffect(() => {
+    const scheduleRefetch = () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        void fetchStats();
+      }, 500);
+    };
+
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shifts' }, scheduleRefetch)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chatters' }, scheduleRefetch)
+      .subscribe();
+
+    return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchStats]);
 
   return {
     stats,
