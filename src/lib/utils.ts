@@ -90,7 +90,7 @@ export const LABELS = {
   noPendingShifts: 'אין משמרות ממתינות',
   noPendingShiftsForApproval: 'אין משמרות ממתינות לאישור',
   unknown: 'לא ידוע',
-  reminderLogSubtitle: 'היסטוריית תזכורות SMS (50 אחרונות)',
+  reminderLogSubtitle: 'היסטוריית תזכורות WhatsApp (50 אחרונות)',
   refresh: 'רענן',
   reminderLogError: 'שגיאה בטעינת לוג תזכורות',
   noRemindersInLog: 'אין תזכורות בלוג',

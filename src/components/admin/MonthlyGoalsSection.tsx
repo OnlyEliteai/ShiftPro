@@ -8,9 +8,16 @@ interface MonthlyGoalsSectionProps {
 }
 
 function getMonthStartDate() {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  return monthStart.toISOString().slice(0, 10);
+  // Use Israel timezone to determine the current month, then build YYYY-MM-01
+  // without going through toISOString() which converts to UTC and can shift the date.
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jerusalem',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const year = parts.find(p => p.type === 'year')!.value;
+  const month = parts.find(p => p.type === 'month')!.value;
+  return `${year}-${month}-01`;
 }
 
 export function MonthlyGoalsSection({ chatters, showToast }: MonthlyGoalsSectionProps) {
@@ -51,6 +58,22 @@ export function MonthlyGoalsSection({ chatters, showToast }: MonthlyGoalsSection
     });
     return () => {
       active = false;
+    };
+  }, [fetchGoals]);
+
+  // Realtime: re-fetch when monthly_goals or daily_summaries change
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-goals-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'monthly_goals' },
+        () => { void fetchGoals(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
   }, [fetchGoals]);
 

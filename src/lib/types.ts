@@ -30,7 +30,7 @@ export interface ReminderLog {
   reminder_type: '60min' | '15min';
   sent_at: string;
   delivery_status: string;
-  twilio_sid: string | null;
+  message_id: string | null;
 }
 
 export interface ActivityLog {

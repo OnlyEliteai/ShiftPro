@@ -10,7 +10,7 @@ interface ReminderRow {
   reminder_type: '60min' | '15min';
   sent_at: string;
   delivery_status: string;
-  twilio_sid: string | null;
+  message_id: string | null;
   shifts: {
     date: string;
     start_time: string;
@@ -128,7 +128,7 @@ export function ReminderLog() {
                     {LABELS.status}
                   </th>
                   <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Twilio SID
+                    מזהה שליחה
                   </th>
                 </tr>
               </thead>
@@ -184,9 +184,9 @@ export function ReminderLog() {
                       </span>
                     </td>
 
-                    {/* Twilio SID */}
+                    {/* Message ID */}
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs truncate max-w-[140px]">
-                      {row.twilio_sid ?? '—'}
+                      {row.message_id ?? '—'}
                     </td>
                   </tr>
                 ))}

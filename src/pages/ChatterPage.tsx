@@ -163,6 +163,12 @@ function formatHebrewCurrentDate() {
 
 function getWeeklyStatusBadge(shift: Shift) {
   const isToday = shift.date === getIsraelTodayDateKey();
+  if (shift.status === 'pending') {
+    return { label: 'ממתין לאישור', className: 'bg-yellow-500/15 text-yellow-300' };
+  }
+  if (shift.status === 'rejected') {
+    return { label: 'נדחה', className: 'bg-red-500/15 text-red-300 line-through' };
+  }
   if (shift.status === 'completed') {
     return { label: 'הושלם', className: 'bg-emerald-500/15 text-emerald-300' };
   }
@@ -331,6 +337,34 @@ export function ChatterPage() {
       active = false;
     };
   }, [chatter, fetchShiftData, fetchModels, fetchMonthlyProgress]);
+
+  // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
+  useEffect(() => {
+    if (!chatter) return;
+
+    const channel = supabase
+      .channel(`chatter-realtime-${chatter.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shifts', filter: `chatter_id=eq.${chatter.id}` },
+        () => { void fetchShiftData(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'monthly_goals', filter: `chatter_id=eq.${chatter.id}` },
+        () => { void fetchMonthlyProgress(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'daily_summaries', filter: `chatter_id=eq.${chatter.id}` },
+        () => { void fetchMonthlyProgress(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [chatter, fetchShiftData, fetchMonthlyProgress]);
 
   const handleLogout = () => {
     logout();
