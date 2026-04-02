@@ -1,7 +1,9 @@
-import { ChevronRight, ChevronLeft, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronRight, ChevronLeft, Plus, CalendarPlus } from 'lucide-react';
 import type { Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
+import { supabase } from '../../lib/supabase';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
@@ -9,6 +11,7 @@ interface WeeklyGridProps {
   onWeekChange: (offset: number) => void;
   onAddShift: (date: string, shiftType: 'morning' | 'evening') => void;
   onEditShift: (shift: Shift) => void;
+  showToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 export function WeeklyGrid({
@@ -17,7 +20,21 @@ export function WeeklyGrid({
   onWeekChange,
   onAddShift,
   onEditShift,
+  showToast,
 }: WeeklyGridProps) {
+  const [generatingSlots, setGeneratingSlots] = useState(false);
+
+  async function handleGenerateSlots() {
+    setGeneratingSlots(true);
+    const { error } = await supabase.rpc('generate_weekly_shift_slots');
+    if (error) {
+      showToast?.('error', error.message);
+    } else {
+      showToast?.('success', LABELS.slotsGenerated);
+    }
+    setGeneratingSlots(false);
+  }
+
   const weekDates = getWeekDates(weekOffset);
   const windows = [
     { key: 'morning' as const, label: 'בוקר', time: '12:00–19:00' },
@@ -76,8 +93,18 @@ export function WeeklyGrid({
   return (
     <div className="p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-white">{LABELS.schedule}</h2>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-white">{LABELS.schedule}</h2>
+          <button
+            onClick={handleGenerateSlots}
+            disabled={generatingSlots}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <CalendarPlus size={14} />
+            {generatingSlots ? '...' : LABELS.generateNextWeekSlots}
+          </button>
+        </div>
 
         {/* Week navigation */}
         <div className="flex items-center gap-2 text-sm">

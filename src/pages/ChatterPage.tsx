@@ -5,8 +5,8 @@ import { ChatterLayout } from '../components/chatter/ChatterLayout';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import { LABELS, formatTime, cn } from '../lib/utils';
-import { AlertCircle, Clock3, Timer } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
+import { supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
 import type { Model, Shift } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
@@ -169,6 +169,9 @@ function getWeeklyStatusBadge(shift: Shift) {
   if (shift.status === 'rejected') {
     return { label: 'נדחה', className: 'bg-red-500/15 text-red-300 line-through' };
   }
+  if (shift.status === 'cancelled') {
+    return { label: 'בוטל', className: 'bg-gray-500/15 text-gray-400 line-through' };
+  }
   if (shift.status === 'completed') {
     return { label: 'הושלם', className: 'bg-emerald-500/15 text-emerald-300' };
   }
@@ -198,6 +201,8 @@ export function ChatterPage() {
   const [monthlyGoal, setMonthlyGoal] = useState<number | null>(null);
   const [monthlyEarned, setMonthlyEarned] = useState(0);
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
+  const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const weekRange = useMemo(() => getIsraelWeekRange(), []);
   const currentDateLabel = useMemo(() => formatHebrewCurrentDate(), []);
   const displayName = profile?.display_name ?? chatter?.name ?? '';
@@ -408,6 +413,86 @@ export function ChatterPage() {
     await fetchShiftData();
   }
 
+  async function handleSmartClockIn() {
+    if (!chatter) return;
+    const today = getIsraelTodayDateKey();
+    const nowMinutes = getCurrentIsraelWallClockMinutes();
+
+    const { data: todayShifts } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('chatter_id', chatter.id)
+      .eq('date', today)
+      .eq('status', 'scheduled')
+      .order('start_time', { ascending: true });
+
+    if (!todayShifts || todayShifts.length === 0) {
+      showToast('error', LABELS.noShiftNow);
+      return;
+    }
+
+    // Find shifts within -30 to +30 minutes of now
+    const eligible = todayShifts.filter(s => {
+      const shiftMinutes = toWallClockMinutes(s.date, s.start_time);
+      const diff = shiftMinutes - nowMinutes;
+      return diff >= -30 && diff <= 30;
+    });
+
+    if (eligible.length === 0) {
+      showToast('error', LABELS.noShiftNow);
+      return;
+    }
+
+    if (eligible.length === 1) {
+      await handleClockIn(eligible[0] as Shift);
+      return;
+    }
+
+    // Multiple matches — show picker
+    setClockInCandidates(eligible as Shift[]);
+  }
+
+  async function handleCancelShift(shift: Shift) {
+    if (!chatter) return;
+
+    const minutesUntil = getMinutesUntilShift(shift);
+    if (minutesUntil < 240) {
+      showToast('error', LABELS.cannotCancelLessThan4Hours);
+      return;
+    }
+
+    setActionShiftId(shift.id);
+    const { error: updateError } = await supabase
+      .from('shifts')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', shift.id)
+      .eq('chatter_id', chatter.id)
+      .eq('status', 'scheduled');
+
+    if (updateError) {
+      showToast('error', LABELS.serverError);
+      setActionShiftId(null);
+      return;
+    }
+
+    await supabase.from('activity_log').insert({
+      shift_id: shift.id,
+      chatter_id: chatter.id,
+      action: 'cancel',
+    });
+
+    // Try to promote next person in queue
+    await callEdgeFunction('promote-queue', {
+      method: 'POST',
+      body: JSON.stringify({ shiftId: shift.id }),
+    });
+
+    showToast('success', LABELS.shiftCancelled);
+    setCancelConfirmId(null);
+    setActionShiftId(null);
+    await fetchShiftData();
+  }
+
   const weeklyStats = useMemo(() => {
     const total = weeklyShifts.length;
     const completed = weeklyShifts.filter((shift) => shift.status === 'completed').length;
@@ -520,11 +605,11 @@ export function ChatterPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => handleClockIn(nextShift)}
-                  disabled={actionShiftId === nextShift.id || Boolean(activeShift)}
+                  onClick={handleSmartClockIn}
+                  disabled={Boolean(actionShiftId) || Boolean(activeShift)}
                   className="w-full min-h-[48px] rounded-xl bg-[#1D9E75] hover:bg-[#188561] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold"
                 >
-                  {actionShiftId === nextShift.id ? LABELS.connecting : LABELS.clockIn}
+                  {actionShiftId ? LABELS.connecting : LABELS.clockIn}
                 </button>
               </>
             ) : (
@@ -618,6 +703,36 @@ export function ChatterPage() {
                         מודל: {shift.model ?? LABELS.modelNotFound} • פלטפורמה:{' '}
                         {getPlatformLabel(shift.platform)} • סוג: {getShiftTypeLabel(shift.start_time)}
                       </div>
+
+                      {shift.status === 'scheduled' && getMinutesUntilShift(shift) >= 240 && (
+                        <div className="mt-2">
+                          {cancelConfirmId === shift.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleCancelShift(shift)}
+                                disabled={actionShiftId === shift.id}
+                                className="flex-1 min-h-[32px] rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-medium"
+                              >
+                                {actionShiftId === shift.id ? '...' : LABELS.cancelConfirm}
+                              </button>
+                              <button
+                                onClick={() => setCancelConfirmId(null)}
+                                className="flex-1 min-h-[32px] rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium"
+                              >
+                                {LABELS.cancel}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setCancelConfirmId(shift.id)}
+                              className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
+                            >
+                              <XCircle size={12} />
+                              {LABELS.cancelShift}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </article>
                   );
                 })}
@@ -640,6 +755,38 @@ export function ChatterPage() {
           showToast={showToast}
         />
       )}
+      {/* Smart clock-in: shift picker when multiple candidates */}
+      {clockInCandidates && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4">
+          <div className="bg-gray-900 rounded-2xl border border-gray-700 p-5 w-full max-w-sm space-y-3">
+            <h3 className="text-base font-bold text-white">{LABELS.selectShift}</h3>
+            {clockInCandidates.map(shift => (
+              <button
+                key={shift.id}
+                onClick={async () => {
+                  setClockInCandidates(null);
+                  await handleClockIn(shift);
+                }}
+                className="w-full text-right rounded-xl border border-gray-700 bg-gray-800 hover:bg-gray-700 p-3 transition-colors"
+              >
+                <p className="text-sm font-semibold text-white">
+                  {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
+                </p>
+                <p className="text-xs text-gray-400">
+                  {shift.model ?? ''} • {getShiftTypeLabel(shift.start_time)}
+                </p>
+              </button>
+            ))}
+            <button
+              onClick={() => setClockInCandidates(null)}
+              className="w-full min-h-[40px] rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm"
+            >
+              {LABELS.cancel}
+            </button>
+          </div>
+        </div>
+      )}
+
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </>
   );

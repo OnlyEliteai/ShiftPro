@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { LABELS } from '../../lib/utils';
 import type { Chatter } from '../../lib/types';
 
 interface MonthlyGoalsSectionProps {
@@ -109,9 +110,30 @@ export function MonthlyGoalsSection({ chatters, showToast }: MonthlyGoalsSection
     setEditValue('');
   }
 
+  async function handleCopyLastMonthGoals() {
+    setLoading(true);
+    const { error } = await supabase.rpc('auto_reset_monthly_goals');
+    if (error) {
+      showToast('error', 'שגיאה בהעתקת יעדים');
+    } else {
+      showToast('success', LABELS.goalsCopied);
+      await fetchGoals();
+    }
+    setLoading(false);
+  }
+
   return (
     <div className="mt-6 bg-gray-900 border border-gray-800 rounded-xl p-4">
-      <h3 className="text-lg font-bold text-white mb-3">יעדים חודשיים</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-bold text-white">יעדים חודשיים</h3>
+        <button
+          onClick={handleCopyLastMonthGoals}
+          disabled={loading}
+          className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded-lg text-xs"
+        >
+          {LABELS.copyLastMonthGoals}
+        </button>
+      </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>

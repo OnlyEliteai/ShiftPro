@@ -17,7 +17,7 @@ export interface Shift {
   model: string | null;
   platform: 'telegram' | 'onlyfans' | null;
   model_id: string | null;
-  status: 'pending' | 'scheduled' | 'active' | 'completed' | 'missed' | 'rejected';
+  status: 'pending' | 'scheduled' | 'active' | 'completed' | 'missed' | 'rejected' | 'cancelled';
   clocked_in: string | null;
   clocked_out: string | null;
   created_at: string;
@@ -37,7 +37,7 @@ export interface ActivityLog {
   id: string;
   shift_id: string;
   chatter_id: string;
-  action: 'clock_in' | 'clock_out' | 'auto_missed' | 'manual_override' | 'sign_up' | 'approve' | 'reject';
+  action: 'clock_in' | 'clock_out' | 'auto_missed' | 'manual_override' | 'sign_up' | 'approve' | 'reject' | 'cancel';
   timestamp: string;
   metadata: Record<string, unknown>;
 }
@@ -80,6 +80,26 @@ export interface Model {
 
 export interface ShiftWithChatter extends Shift {
   chatters?: { name: string; phone: string };
+}
+
+export interface ShiftSlot {
+  id: string;
+  date: string;
+  shift_type: 'morning' | 'evening';
+  model: string | null;
+  platform: 'telegram' | 'onlyfans' | null;
+  max_chatters: number;
+  status: 'open' | 'full' | 'closed';
+  created_at: string;
+}
+
+export interface ShiftQueueEntry {
+  id: string;
+  shift_id: string;
+  chatter_id: string;
+  position: number;
+  queued_at: string;
+  status: 'waiting' | 'promoted' | 'expired';
 }
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';

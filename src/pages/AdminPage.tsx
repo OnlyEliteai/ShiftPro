@@ -241,6 +241,7 @@ export function AdminPage() {
             onWeekChange={setWeekOffset}
             onAddShift={openAddShift}
             onEditShift={openEditShift}
+            showToast={showToast}
           />
         );
 

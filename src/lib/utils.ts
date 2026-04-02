@@ -163,6 +163,23 @@ export const LABELS = {
   noDataYet: 'אין נתונים עדיין',
   shifts: 'משמרות',
 
+  // Cancellation & queue
+  cancelShift: 'ביטול משמרת',
+  cancelConfirm: 'בטוח/ה לבטל?',
+  cancelled: 'בוטל',
+  cannotCancelLessThan4Hours: 'לא ניתן לבטל משמרת פחות מ-4 שעות מראש. פנה למנהל.',
+  shiftCancelled: 'המשמרת בוטלה בהצלחה',
+  queuePosition: 'מקום בתור',
+  inQueue: 'בתור',
+  joinQueue: 'הצטרף לתור',
+  joinedQueue: 'נוספת לתור!',
+  noShiftNow: 'אין משמרת שמתחילה עכשיו',
+  selectShift: 'בחר משמרת',
+  generateNextWeekSlots: 'צור משמרות לשבוע הבא',
+  slotsGenerated: 'המשמרות נוצרו בהצלחה',
+  copyLastMonthGoals: 'העתק יעדים מחודש קודם',
+  goalsCopied: 'היעדים הועתקו בהצלחה',
+
   // Misc
   loading: 'טוען...',
   close: 'סגור',
@@ -191,6 +208,7 @@ export function getStatusColor(status: string): string {
     case 'completed': return 'bg-blue-500/20 text-blue-400';
     case 'missed': return 'bg-red-500/20 text-red-400';
     case 'rejected': return 'bg-red-700/20 text-red-500 line-through';
+    case 'cancelled': return 'bg-gray-600/20 text-gray-500 line-through';
     default: return 'bg-gray-500/20 text-gray-400';
   }
 }
