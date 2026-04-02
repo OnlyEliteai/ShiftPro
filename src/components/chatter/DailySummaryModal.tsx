@@ -199,6 +199,7 @@ export function DailySummaryModal({
       income_telegram: incomeTelegram,
       income_onlyfans: incomeOnlyfans,
       income_other: incomeOther,
+      income_total: totalIncome,
       all_deposits_verified: allDepositsVerified ?? false,
       improvement_suggestions: improvementSuggestions,
       content_request: contentRequest || null,
@@ -213,12 +214,16 @@ export function DailySummaryModal({
     }
 
     const nowIso = new Date().toISOString();
-    const { error: shiftError } = await supabase
+    const { data: completedShift, error: shiftError } = await supabase
       .from('shifts')
       .update({ status: 'completed', clocked_out: nowIso })
-      .eq('id', shift.id);
+      .eq('id', shift.id)
+      .eq('chatter_id', chatterId)
+      .eq('status', 'active')
+      .select('id')
+      .maybeSingle();
 
-    if (shiftError) {
+    if (shiftError || !completedShift) {
       showToast('error', 'שגיאה ביציאה מהמשמרת');
       setSubmitting(false);
       return;
@@ -238,8 +243,8 @@ export function DailySummaryModal({
 
     showToast('success', 'הסיכום נשלח בהצלחה!');
     setSubmitting(false);
-    await onSubmitted();
     onClose();
+    await onSubmitted();
   }
 
   return (
