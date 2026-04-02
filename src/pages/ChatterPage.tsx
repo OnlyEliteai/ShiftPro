@@ -159,11 +159,9 @@ function getShiftTypeByStartTime(startTime: string): ShiftSlot['shift_type'] {
 
 function getSlotKey(
   date: string,
-  shiftType: ShiftSlot['shift_type'],
-  model: string | null,
-  platform: Shift['platform']
+  shiftType: ShiftSlot['shift_type']
 ) {
-  return `${date}|${shiftType}|${model ?? ''}|${platform ?? ''}`;
+  return `${date}|${shiftType}`;
 }
 
 function formatHebrewDate(dateString: string) {
@@ -246,9 +244,7 @@ export function ChatterPage() {
       futureOwnShifts.map((shift) =>
         getSlotKey(
           shift.date,
-          getShiftTypeByStartTime(shift.start_time),
-          shift.model,
-          shift.platform
+          getShiftTypeByStartTime(shift.start_time)
         )
       )
     );
@@ -396,8 +392,8 @@ export function ChatterPage() {
       date: slot.date,
       start_time: timeWindow.start,
       end_time: timeWindow.end,
-      model: slot.model,
-      platform: slot.platform,
+      model: null,
+      platform: null,
       status: 'pending',
     });
 
@@ -857,9 +853,18 @@ export function ChatterPage() {
                         </span>
                       </div>
 
-                      <div className="text-xs text-gray-300">
-                        מודל: {shift.model ?? LABELS.modelNotFound} • פלטפורמה:{' '}
-                        {getPlatformLabel(shift.platform)} • סוג: {getShiftTypeLabel(shift.start_time)}
+                      <div className="text-xs text-gray-300 flex items-center gap-2 flex-wrap">
+                        <span>סוג: {getShiftTypeLabel(shift.start_time)}</span>
+                        {!shift.model || !shift.platform ? (
+                          <span className="text-gray-500">טרם שובץ</span>
+                        ) : (
+                          <>
+                            <span>מודל: {shift.model}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-gray-700 text-gray-200">
+                              {getPlatformLabel(shift.platform)}
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       {shift.status === 'scheduled' && getMinutesUntilShift(shift) >= 240 && (
@@ -910,7 +915,7 @@ export function ChatterPage() {
                   <div key={date} className="space-y-2">
                     <p className="text-sm font-semibold text-gray-200">{formatHebrewDate(date)}</p>
                     {slots.map((slot) => {
-                      const slotKey = getSlotKey(date, slot.shift_type, slot.model, slot.platform);
+                      const slotKey = getSlotKey(date, slot.shift_type);
                       const isSigned = signedSlotKeys.has(slotKey);
                       const isFull = slot.status === 'full';
                       const isActing = slotActionId === slot.id;
@@ -925,9 +930,6 @@ export function ChatterPage() {
                             <div>
                               <p className="text-sm font-semibold text-white">
                                 {getSlotTypeLabel(slot.shift_type)} {timeWindow.start}-{timeWindow.end}
-                              </p>
-                              <p className="text-xs text-gray-300">
-                                {slot.model ?? LABELS.noModel} • {getPlatformLabel(slot.platform)}
                               </p>
                             </div>
                             {isSigned ? (

@@ -88,7 +88,10 @@ export function AdminApproval({ models }: AdminApprovalProps) {
 
   const handleApprove = async (shiftId: string) => {
     const sel = selections[shiftId];
-    if (!sel?.modelId || !sel?.platform) return;
+    if (!sel?.modelId || !sel?.platform) {
+      setError(LABELS.selectModelAndPlatform);
+      return;
+    }
 
     const model = models.find((m) => m.id === sel.modelId);
     if (!model) {
@@ -211,6 +214,7 @@ export function AdminApproval({ models }: AdminApprovalProps) {
                     onChange={(e) =>
                       updateSelection(shift.id, 'modelId', e.target.value)
                     }
+                    required
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   >
                     <option value="">{LABELS.selectModel}</option>
@@ -232,6 +236,7 @@ export function AdminApproval({ models }: AdminApprovalProps) {
                     onChange={(e) =>
                       updateSelection(shift.id, 'platform', e.target.value)
                     }
+                    required
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   >
                     <option value="">{LABELS.selectPlatform}</option>
