@@ -248,7 +248,7 @@ export function AdminPage() {
         );
 
       case 'approval':
-        return <AdminApproval models={models.filter((m) => m.active)} />;
+        return <AdminApproval models={models.filter((m) => m.active)} shifts={shifts} />;
 
       case 'chatters':
         return (

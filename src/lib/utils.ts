@@ -57,7 +57,7 @@ export const LABELS = {
   models: 'מודלים',
   addModel: 'הוסף מודל',
   telegram: 'טלגרם',
-  onlyfans: 'אונליפנס',
+  onlyfans: 'אונליפאנס',
   platform: 'פלטפורמה',
   selectModel: 'בחר מודל',
   selectPlatform: 'בחר פלטפורמה',

@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CheckCircle, XCircle, Clock, Inbox } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import type { Model } from '../../lib/types';
+import type { Model, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatDate, formatTime, cn } from '../../lib/utils';
 
 interface PendingShift {
@@ -16,9 +16,19 @@ interface PendingShift {
 
 interface AdminApprovalProps {
   models: Model[];
+  shifts: ShiftWithChatter[];
 }
 
-export function AdminApproval({ models }: AdminApprovalProps) {
+type Platform = 'telegram' | 'onlyfans';
+
+const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
+  { value: 'telegram', label: 'טלגרם' },
+  { value: 'onlyfans', label: 'אונליפאנס' },
+];
+
+const OCCUPIED_STATUSES = new Set(['pending', 'scheduled', 'active', 'completed']);
+
+export function AdminApproval({ models, shifts }: AdminApprovalProps) {
   const [pendingShifts, setPendingShifts] = useState<PendingShift[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,6 +38,25 @@ export function AdminApproval({ models }: AdminApprovalProps) {
   >({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const refreshTimeoutRef = useRef<number | null>(null);
+
+  const takenBySlot = useMemo(() => {
+    const map = new Map<string, Map<string, Set<Platform>>>();
+
+    for (const shift of shifts) {
+      if (!shift.model || !shift.platform) continue;
+      if (!OCCUPIED_STATUSES.has(shift.status)) continue;
+
+      const slotKey = `${shift.date}|${shift.start_time}|${shift.end_time}`;
+      const byModel = map.get(slotKey) ?? new Map<string, Set<Platform>>();
+      const byPlatform = byModel.get(shift.model) ?? new Set<Platform>();
+      byPlatform.add(shift.platform as Platform);
+      byModel.set(shift.model, byPlatform);
+      map.set(slotKey, byModel);
+    }
+
+    return map;
+  }, [shifts]);
 
   const fetchPending = useCallback(async () => {
     const { data, error } = await supabase
@@ -62,12 +91,21 @@ export function AdminApproval({ models }: AdminApprovalProps) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'shifts' },
         () => {
-          fetchPending();
+          if (refreshTimeoutRef.current) {
+            window.clearTimeout(refreshTimeoutRef.current);
+          }
+          refreshTimeoutRef.current = window.setTimeout(() => {
+            refreshTimeoutRef.current = null;
+            void fetchPending();
+          }, 500);
         }
       )
       .subscribe();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
       supabase.removeChannel(channel);
     };
   }, [fetchPending]);
@@ -77,11 +115,13 @@ export function AdminApproval({ models }: AdminApprovalProps) {
     field: 'modelId' | 'platform',
     value: string
   ) => {
+    setError(null);
     setSelections((prev) => ({
       ...prev,
       [shiftId]: {
-        ...prev[shiftId],
-        [field]: value,
+        ...(field === 'modelId'
+          ? { modelId: value, platform: '' }
+          : { ...prev[shiftId], [field]: value }),
       },
     }));
   };
@@ -173,7 +213,25 @@ export function AdminApproval({ models }: AdminApprovalProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {pendingShifts.map((shift) => {
             const sel = selections[shift.id] ?? { modelId: '', platform: '' };
-            const canApprove = !!sel.modelId && !!sel.platform;
+            const slotKey = `${shift.date}|${shift.start_time}|${shift.end_time}`;
+            const slotAssignments = takenBySlot.get(slotKey);
+            const availableModels = models.filter((model) => {
+              const takenPlatforms = slotAssignments?.get(model.name) ?? new Set<Platform>();
+              return PLATFORM_OPTIONS.some((platform) => !takenPlatforms.has(platform.value));
+            });
+
+            const selectedModel = models.find((m) => m.id === sel.modelId) ?? null;
+            const availablePlatforms = selectedModel
+              ? PLATFORM_OPTIONS.filter((platform) => {
+                  const takenPlatforms = slotAssignments?.get(selectedModel.name) ?? new Set<Platform>();
+                  return !takenPlatforms.has(platform.value);
+                })
+              : [];
+            const canApprove =
+              !!selectedModel &&
+              !!sel.platform &&
+              availableModels.some((model) => model.id === selectedModel.id) &&
+              availablePlatforms.some((platform) => platform.value === sel.platform);
             const isLoading = actionLoading === shift.id;
 
             return (
@@ -215,15 +273,19 @@ export function AdminApproval({ models }: AdminApprovalProps) {
                       updateSelection(shift.id, 'modelId', e.target.value)
                     }
                     required
+                    disabled={availableModels.length === 0}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   >
                     <option value="">{LABELS.selectModel}</option>
-                    {models.map((m) => (
+                    {availableModels.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.name}
                       </option>
                     ))}
                   </select>
+                  {availableModels.length === 0 && (
+                    <p className="text-xs text-yellow-400 mt-1">אין מודלים זמינים בחלון הזה</p>
+                  )}
                 </div>
 
                 {/* Platform select */}
@@ -237,11 +299,15 @@ export function AdminApproval({ models }: AdminApprovalProps) {
                       updateSelection(shift.id, 'platform', e.target.value)
                     }
                     required
+                    disabled={!selectedModel}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
                   >
                     <option value="">{LABELS.selectPlatform}</option>
-                    <option value="telegram">{LABELS.telegram}</option>
-                    <option value="onlyfans">{LABELS.onlyfans}</option>
+                    {availablePlatforms.map((platform) => (
+                      <option key={platform.value} value={platform.value}>
+                        {platform.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
