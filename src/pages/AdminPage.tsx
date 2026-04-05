@@ -5,7 +5,6 @@ import { useShifts } from '../hooks/useShifts';
 import { useChatters } from '../hooks/useChatters';
 import { useModels } from '../hooks/useModels';
 import { useToast } from '../hooks/useToast';
-import { useUnassignedModelAlert } from '../hooks/useUnassignedModelAlert';
 import { AdminLayout } from '../components/admin/AdminLayout';
 import { Dashboard } from '../components/admin/Dashboard';
 import { WeeklyGrid } from '../components/admin/WeeklyGrid';
@@ -57,9 +56,6 @@ export function AdminPage() {
   const { chatters, loading: chattersLoading, createChatter, deleteChatter, toggleActive } = useChatters();
   const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
-
-  // Alert admin about unassigned shift slots starting within 120 min
-  useUnassignedModelAlert(showToast);
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
