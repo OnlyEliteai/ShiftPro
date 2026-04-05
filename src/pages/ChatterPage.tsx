@@ -8,7 +8,7 @@ import { LABELS, formatTime, cn } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
 import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import type { Model, Platform, Shift, ShiftAssignment, ShiftSlot } from '../lib/types';
+import type { Model, Platform, Shift, ShiftAssignment, ShiftSlot, ShiftWithChatter } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
@@ -85,6 +85,20 @@ function getIsraelWeekRange() {
       weekEnd.getUTCDate()
     ),
   };
+}
+
+function getWeekDatesFromStart(startDate: string) {
+  const [year, month, day] = startDate.split('-').map(Number);
+  const start = new Date(Date.UTC(year, month - 1, day));
+  return Array.from({ length: 7 }, (_, index) => {
+    const current = new Date(start);
+    current.setUTCDate(start.getUTCDate() + index);
+    return toDateKey(
+      current.getUTCFullYear(),
+      current.getUTCMonth() + 1,
+      current.getUTCDate()
+    );
+  });
 }
 
 function getIsraelMonthRange() {
@@ -271,6 +285,16 @@ function formatHebrewCurrentDate() {
   }).format(new Date());
 }
 
+function formatHebrewShortDate(dateString: string) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: ISRAEL_TIMEZONE,
+    day: 'numeric',
+    month: 'numeric',
+  }).format(date);
+}
+
 function getWeeklyStatusBadge(shift: Shift) {
   const isToday = shift.date === getIsraelTodayDateKey();
   if (shift.status === 'pending') {
@@ -297,14 +321,27 @@ function getWeeklyStatusBadge(shift: Shift) {
   return { label: 'מתוכנן', className: 'bg-gray-500/15 text-gray-300' };
 }
 
+function getSharedBoardStatusBadge(status: Shift['status']) {
+  if (status === 'active') {
+    return { label: LABELS.active, className: 'bg-emerald-500/15 text-emerald-300' };
+  }
+  if (status === 'completed') {
+    return { label: LABELS.completed, className: 'bg-blue-500/15 text-blue-300' };
+  }
+  return { label: LABELS.scheduled, className: 'bg-gray-500/15 text-gray-300' };
+}
+
 export function ChatterPage() {
   const navigate = useNavigate();
   const { profile, chatter, loading, error, logout } = useChatterAuth();
   const { toasts, showToast, dismissToast } = useToast();
   const [weeklyShifts, setWeeklyShifts] = useState<Shift[]>([]);
+  const [sharedWeekShifts, setSharedWeekShifts] = useState<ShiftWithChatter[]>([]);
   const [nextShift, setNextShift] = useState<Shift | null>(null);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [activeView, setActiveView] = useState<'my_shifts' | 'shared_board'>('my_shifts');
   const [loadingShifts, setLoadingShifts] = useState(false);
+  const [loadingSharedBoard, setLoadingSharedBoard] = useState(false);
   const [actionShiftId, setActionShiftId] = useState<string | null>(null);
   const [clockOutShift, setClockOutShift] = useState<Shift | null>(null);
   const [models, setModels] = useState<Model[]>([]);
@@ -317,6 +354,7 @@ export function ChatterPage() {
   const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const weekRange = useMemo(() => getIsraelWeekRange(), []);
+  const weekDates = useMemo(() => getWeekDatesFromStart(weekRange.start), [weekRange.start]);
   const currentDateLabel = useMemo(() => formatHebrewCurrentDate(), []);
   const displayName = profile?.display_name ?? chatter?.name ?? '';
   const avatarLetter = (displayName.trim().charAt(0) || 'צ').toUpperCase();
@@ -324,6 +362,21 @@ export function ChatterPage() {
     activeShift?.clocked_in
       ? formatElapsedDuration(activeShift.clocked_in, currentTimestamp)
       : '';
+
+  const sharedShiftsByDateAndWindow = useMemo(() => {
+    const grouped: Record<string, { morning: ShiftWithChatter[]; evening: ShiftWithChatter[] }> = {};
+    weekDates.forEach((date) => {
+      grouped[date] = { morning: [], evening: [] };
+    });
+
+    for (const shift of sharedWeekShifts) {
+      if (!grouped[shift.date]) continue;
+      const shiftType = getShiftTypeByStartTime(shift.start_time);
+      grouped[shift.date][shiftType].push(shift);
+    }
+
+    return grouped;
+  }, [sharedWeekShifts, weekDates]);
 
   const fetchShiftData = useCallback(async () => {
     if (!chatter) return;
@@ -374,6 +427,28 @@ export function ChatterPage() {
     setActiveShift((activeRes.data as Shift | null) ?? null);
     setLoadingShifts(false);
   }, [chatter, weekRange.end, weekRange.start, showToast]);
+
+  const fetchSharedScheduleData = useCallback(async () => {
+    if (!chatter) return;
+    setLoadingSharedBoard(true);
+
+    const { data, error: sharedError } = await supabase
+      .from('shifts')
+      .select('*, chatters(name), shift_assignments(model, platform)')
+      .in('date', weekDates)
+      .in('status', ['scheduled', 'active', 'completed'])
+      .order('date', { ascending: true })
+      .order('start_time', { ascending: true });
+
+    if (sharedError) {
+      showToast('error', LABELS.noConnection);
+      setLoadingSharedBoard(false);
+      return;
+    }
+
+    setSharedWeekShifts((data ?? []) as ShiftWithChatter[]);
+    setLoadingSharedBoard(false);
+  }, [chatter, showToast, weekDates]);
 
   const fetchModels = useCallback(async () => {
     const { data, error: modelsError } = await supabase
@@ -617,6 +692,7 @@ export function ChatterPage() {
     Promise.resolve().then(() => {
       if (active) {
         void fetchShiftData();
+        void fetchSharedScheduleData();
         void fetchModels();
         void fetchMonthlyProgress();
         void fetchAvailableSlots();
@@ -625,7 +701,7 @@ export function ChatterPage() {
     return () => {
       active = false;
     };
-  }, [chatter, fetchShiftData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots]);
+  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots]);
 
   // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
   useEffect(() => {
@@ -643,9 +719,17 @@ export function ChatterPage() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'shifts' },
+        () => {
+          void fetchSharedScheduleData();
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'shift_assignments' },
         () => {
           void fetchShiftData();
+          void fetchSharedScheduleData();
         }
       )
       .on(
@@ -668,7 +752,7 @@ export function ChatterPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatter, fetchShiftData, fetchMonthlyProgress, fetchAvailableSlots]);
+  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchMonthlyProgress, fetchAvailableSlots]);
 
   const handleLogout = () => {
     logout();
@@ -819,6 +903,36 @@ export function ChatterPage() {
     return grouped;
   }, [availableSlots]);
 
+  const sharedWindows = useMemo(
+    () => [
+      { key: 'morning' as const, label: 'בוקר', time: '12:00–19:00' },
+      { key: 'evening' as const, label: 'ערב', time: '19:00–02:00' },
+    ],
+    []
+  );
+
+  const getShiftChatterName = useCallback((shift: ShiftWithChatter) => {
+    return shift.chatters?.name ?? LABELS.unknown;
+  }, []);
+
+  const getSharedWindowNames = useCallback(
+    (shift: ShiftWithChatter) => {
+      const names = sharedWeekShifts
+        .filter(
+          (candidate) =>
+            candidate.id !== shift.id &&
+            candidate.date === shift.date &&
+            candidate.start_time === shift.start_time &&
+            candidate.end_time === shift.end_time
+        )
+        .map((candidate) => getShiftChatterName(candidate))
+        .filter((name) => Boolean(name));
+
+      return Array.from(new Set(names));
+    },
+    [getShiftChatterName, sharedWeekShifts]
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -869,6 +983,35 @@ export function ChatterPage() {
             </div>
           </section>
 
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setActiveView('my_shifts')}
+                className={cn(
+                  'min-h-[40px] rounded-xl text-sm font-medium transition-colors',
+                  activeView === 'my_shifts'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                )}
+              >
+                המשמרות שלי
+              </button>
+              <button
+                onClick={() => setActiveView('shared_board')}
+                className={cn(
+                  'min-h-[40px] rounded-xl text-sm font-medium transition-colors',
+                  activeView === 'shared_board'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                )}
+              >
+                לוח משמרות
+              </button>
+            </div>
+          </section>
+
+          {activeView === 'my_shifts' ? (
+            <>
           {activeShift && (
             <section className="rounded-2xl border border-emerald-700/40 bg-emerald-900/20 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -944,7 +1087,7 @@ export function ChatterPage() {
             ) : (
               <>
                 <p className="text-sm text-gray-200 mb-1">
-                  ₪{monthlyEarned.toLocaleString('he-IL')} מתוך ₪
+                  ${monthlyEarned.toLocaleString('he-IL')} מתוך $
                   {monthlyGoal.toLocaleString('he-IL')}
                 </p>
                 <p className="text-xs text-gray-400 mb-2">
@@ -1132,6 +1275,102 @@ export function ChatterPage() {
               </div>
             )}
           </section>
+            </>
+          ) : (
+            <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-bold text-white">לוח משמרות</h2>
+                <span className="text-xs text-gray-400">
+                  {weekRange.start} - {weekRange.end}
+                </span>
+              </div>
+
+              {loadingSharedBoard ? (
+                <LoadingSpinner />
+              ) : sharedWeekShifts.length === 0 ? (
+                <p className="text-sm text-gray-400">אין משמרות להצגה השבוע</p>
+              ) : (
+                <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+                  <div className="grid grid-cols-8 gap-2 min-w-[980px]">
+                    <div className="text-center pb-2 border-b border-gray-700" />
+                    {weekDates.map((date, index) => (
+                      <div key={date} className="text-center pb-2 border-b border-gray-700">
+                        <p className="text-xs font-semibold mb-1 text-gray-400">
+                          {LABELS.days[index]}
+                        </p>
+                        <p className="text-sm font-bold text-gray-300">{formatHebrewShortDate(date)}</p>
+                      </div>
+                    ))}
+
+                    {sharedWindows.map((window) => (
+                      <div key={window.key} className="contents">
+                        <div className="rounded-lg bg-gray-900/80 border border-gray-800 p-3 flex flex-col justify-center">
+                          <p className="text-sm font-bold text-white">{window.label}</p>
+                          <p className="text-xs text-gray-400 mt-1">{window.time}</p>
+                        </div>
+
+                        {weekDates.map((date) => (
+                          <div
+                            key={`${window.key}-${date}`}
+                            className="min-h-[170px] rounded-lg p-2 space-y-2 border bg-gray-800/30 border-gray-800"
+                          >
+                            {sharedShiftsByDateAndWindow[date][window.key].map((shift) => {
+                              const isOwnShift = shift.chatter_id === chatter?.id;
+                              const statusBadge = getSharedBoardStatusBadge(shift.status);
+                              const assignmentsSummary = formatAssignmentsSummary(shift);
+                              const withYouNames = getSharedWindowNames(shift);
+
+                              return (
+                                <article
+                                  key={shift.id}
+                                  className={cn(
+                                    'rounded-md p-2 border',
+                                    isOwnShift
+                                      ? 'border-blue-500/60 bg-blue-900/20'
+                                      : 'border-transparent bg-gray-800/60'
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <p className="text-xs font-semibold text-white truncate">
+                                      {getShiftChatterName(shift)}
+                                    </p>
+                                    {isOwnShift && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
+                                        המשמרת שלך
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <p className="text-[11px] text-gray-300 truncate mb-1">
+                                    {assignmentsSummary || 'טרם שובץ מודל'}
+                                  </p>
+
+                                  {withYouNames.length > 0 && (
+                                    <p className="text-[11px] text-gray-400 truncate mb-1">
+                                      {isOwnShift ? 'איתך במשמרת' : 'באותו חלון'}: {withYouNames.join(', ')}
+                                    </p>
+                                  )}
+
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[11px] text-gray-400 font-mono">
+                                      {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
+                                    </p>
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${statusBadge.className}`}>
+                                      {statusBadge.label}
+                                    </span>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </ChatterLayout>
 

@@ -15,6 +15,7 @@ import { AdminApproval } from '../components/admin/AdminApproval';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
 import { MonthlyGoalsSection } from '../components/admin/MonthlyGoalsSection';
+import { AdminExportPanel } from '../components/admin/AdminExportPanel';
 const Analytics = lazy(() => import('../components/admin/Analytics').then(m => ({ default: m.Analytics })));
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
@@ -232,6 +233,7 @@ export function AdminPage() {
               onPendingApprovalsClick={() => setActiveTab('approval')}
             />
             <MonthlyGoalsSection chatters={chatters} showToast={showToast} />
+            <AdminExportPanel showToast={showToast} />
           </div>
         );
 

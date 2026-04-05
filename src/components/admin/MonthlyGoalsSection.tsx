@@ -139,7 +139,7 @@ export function MonthlyGoalsSection({ chatters, showToast }: MonthlyGoalsSection
           <thead>
             <tr className="text-gray-400 border-b border-gray-800">
               <th className="text-right py-2 px-2">צ׳אטר</th>
-              <th className="text-right py-2 px-2">יעד חודשי (₪)</th>
+              <th className="text-right py-2 px-2">יעד חודשי ($)</th>
               <th className="text-right py-2 px-2">פעולה</th>
             </tr>
           </thead>
@@ -157,7 +157,7 @@ export function MonthlyGoalsSection({ chatters, showToast }: MonthlyGoalsSection
                       className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white w-32"
                     />
                   ) : (
-                    `₪${goalsByChatter[chatter.id] ?? 0}`
+                    `$${goalsByChatter[chatter.id] ?? 0}`
                   )}
                 </td>
                 <td className="py-2 px-2">

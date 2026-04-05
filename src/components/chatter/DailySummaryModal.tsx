@@ -71,6 +71,7 @@ export function DailySummaryModal({
 
   const [incomeTelegram, setIncomeTelegram] = useState<number>(0);
   const [incomeOnlyfans, setIncomeOnlyfans] = useState<number>(0);
+  const [incomeTransfers, setIncomeTransfers] = useState<number>(0);
   const [incomeOther, setIncomeOther] = useState<number>(0);
   const [allDepositsVerified, setAllDepositsVerified] = useState<boolean | null>(null);
   const [improvementSuggestions, setImprovementSuggestions] = useState('');
@@ -79,7 +80,7 @@ export function DailySummaryModal({
   const [selfImprovementPoint, setSelfImprovementPoint] = useState('');
   const [selfPreservationPoint, setSelfPreservationPoint] = useState('');
 
-  const totalIncome = incomeTelegram + incomeOnlyfans + incomeOther;
+  const totalIncome = incomeOnlyfans + incomeTelegram + incomeTransfers + incomeOther;
   const formLocked = submitting || submitted;
 
   useEffect(() => {
@@ -239,6 +240,7 @@ export function DailySummaryModal({
       unusual_events_detail: unusualEventsDetail || null,
       income_telegram: incomeTelegram,
       income_onlyfans: incomeOnlyfans,
+      income_transfers: incomeTransfers,
       income_other: incomeOther,
       all_deposits_verified: allDepositsVerified ?? false,
       improvement_suggestions: improvementSuggestions,
@@ -462,11 +464,12 @@ export function DailySummaryModal({
             <div className="space-y-4">
               <h3 className="text-lg font-bold text-white">סיכום אישי</h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 {[
-                  { label: 'טלגרם', value: incomeTelegram, setValue: setIncomeTelegram },
                   { label: 'אונלי', value: incomeOnlyfans, setValue: setIncomeOnlyfans },
-                  { label: 'חוץ', value: incomeOther, setValue: setIncomeOther },
+                  { label: 'טלגרם', value: incomeTelegram, setValue: setIncomeTelegram },
+                  { label: 'העברות', value: incomeTransfers, setValue: setIncomeTransfers },
+                  { label: 'אחר', value: incomeOther, setValue: setIncomeOther },
                 ].map((field) => (
                   <div key={field.label}>
                     <label className="block text-sm text-gray-300 mb-1">{field.label}</label>
@@ -481,7 +484,7 @@ export function DailySummaryModal({
                 ))}
               </div>
 
-              <div className="text-sm text-gray-200">סה״כ: ₪{totalIncome}</div>
+              <div className="text-sm text-gray-200">סה״כ: ${totalIncome}</div>
 
               <div>
                 <p className="text-sm text-gray-300 mb-2">האם כלל ההפקדות אומתו?</p>
