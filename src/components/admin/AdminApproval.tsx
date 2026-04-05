@@ -17,6 +17,8 @@ interface PendingShift {
 interface AdminApprovalProps {
   models: Model[];
   shifts: ShiftWithChatter[];
+  showToast?: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void;
+  onRefreshShifts?: () => Promise<void> | void;
 }
 
 type Platform = 'telegram' | 'onlyfans';
@@ -28,7 +30,7 @@ const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
 
 const OCCUPIED_STATUSES = new Set(['pending', 'scheduled', 'active', 'completed']);
 
-export function AdminApproval({ models, shifts }: AdminApprovalProps) {
+export function AdminApproval({ models, shifts, showToast, onRefreshShifts }: AdminApprovalProps) {
   const [pendingShifts, setPendingShifts] = useState<PendingShift[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -153,14 +155,25 @@ export function AdminApproval({ models, shifts }: AdminApprovalProps) {
       .eq('id', shiftId)
       .eq('status', 'pending');
 
-    if (!error) {
-      setPendingShifts((prev) => prev.filter((s) => s.id !== shiftId));
-      setSelections((prev) => {
-        const next = { ...prev };
-        delete next[shiftId];
-        return next;
-      });
+    if (error) {
+      const duplicateMessage = 'הדוגמנית+פלטפורמה הזו כבר משובצת בחלון הזה — בחר שילוב אחר';
+      const errorMessage =
+        error.code === '23505' ? duplicateMessage : error.message || LABELS.serverError;
+      setError(errorMessage);
+      showToast?.('error', errorMessage);
+      await fetchPending();
+      await onRefreshShifts?.();
+      setActionLoading(null);
+      return;
     }
+
+    setPendingShifts((prev) => prev.filter((s) => s.id !== shiftId));
+    setSelections((prev) => {
+      const next = { ...prev };
+      delete next[shiftId];
+      return next;
+    });
+    await onRefreshShifts?.();
     setActionLoading(null);
   };
 

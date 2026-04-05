@@ -43,6 +43,7 @@ export function DailySummaryModal({
 }: DailySummaryModalProps) {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const initialAssignments = useMemo(() => {
@@ -84,6 +85,7 @@ export function DailySummaryModal({
   const [selfPreservationPoint, setSelfPreservationPoint] = useState('');
 
   const totalIncome = incomeTelegram + incomeOnlyfans + incomeOther;
+  const formLocked = submitting || submitted;
 
   const assignmentPayload = useMemo(() => {
     return Object.values(assignments)
@@ -178,6 +180,7 @@ export function DailySummaryModal({
   }
 
   async function handleSubmit() {
+    if (submitting || submitted) return;
     if (!validateCurrentStep()) return;
     setSubmitting(true);
 
@@ -210,6 +213,14 @@ export function DailySummaryModal({
     });
 
     if (summaryError) {
+      if (summaryError.code === '23505') {
+        setSubmitted(true);
+        setError(null);
+        showToast('info', 'הסיכום כבר נשלח למשמרת הזו');
+        await onSubmitted();
+        setSubmitting(false);
+        return;
+      }
       console.error('[DailySummary] insert failed:', summaryError.message, summaryError.details, summaryError.hint);
       showToast('error', `שגיאה בשליחת הסיכום: ${summaryError.message}`);
       setSubmitting(false);
@@ -244,9 +255,10 @@ export function DailySummaryModal({
       return;
     }
 
+    setSubmitted(true);
+    setError(null);
     showToast('success', 'הסיכום נשלח בהצלחה!');
     setSubmitting(false);
-    onClose();
     await onSubmitted();
   }
 
@@ -268,258 +280,277 @@ export function DailySummaryModal({
           </div>
         </div>
 
-        {step === 1 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-white">רקע פעילות</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">תאריך</p>
-                <p className="text-white">{shift.date}</p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">יום</p>
-                <p className="text-white">{getDayOfWeekHebrew(shift.date)}</p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-3">
-                <p className="text-gray-400">חלון פעילות</p>
-                <p className="text-white">{getShiftType(shift.start_time)}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm text-gray-300 mb-2">אחיזת מיוצגות - פלטפורמות</p>
-              <div className="rounded-lg border border-gray-800 overflow-hidden">
-                <div className="grid grid-cols-3 bg-gray-800 text-xs text-gray-300 px-3 py-2">
-                  <span>מודל</span>
-                  <span className="text-center">טלגרם</span>
-                  <span className="text-center">אונלי</span>
-                </div>
-                {models.map((model) => (
-                  <div key={model.id} className="grid grid-cols-3 px-3 py-2 border-t border-gray-800 text-sm">
-                    <span className="text-white">{model.name}</span>
-                    <label className="flex justify-center">
-                      <input
-                        type="checkbox"
-                        checked={assignments[model.id]?.telegram ?? false}
-                        onChange={() => toggleAssignment(model.id, 'telegram')}
-                      />
-                    </label>
-                    <label className="flex justify-center">
-                      <input
-                        type="checkbox"
-                        checked={assignments[model.id]?.onlyfans ?? false}
-                        onChange={() => toggleAssignment(model.id, 'onlyfans')}
-                      />
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
+        {submitted && (
+          <div className="mb-3 rounded-lg border border-green-700/60 bg-green-900/30 px-3 py-2 text-sm text-green-200">
+            הסיכום נשמר. הטופס ננעל כדי למנוע שליחה כפולה.
           </div>
         )}
 
-        {step === 2 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-white">מהלך הפעילות</h3>
+        <fieldset disabled={formLocked} className="border-0 m-0 p-0 min-w-0">
+          {step === 1 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-white">רקע פעילות</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-gray-400">תאריך</p>
+                  <p className="text-white">{shift.date}</p>
+                </div>
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-gray-400">יום</p>
+                  <p className="text-white">{getDayOfWeekHebrew(shift.date)}</p>
+                </div>
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-gray-400">חלון פעילות</p>
+                  <p className="text-white">{getShiftType(shift.start_time)}</p>
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">פערים בזמינות מיוצגת</label>
-              <select
-                value={availabilityStatus}
-                onChange={(e) => setAvailabilityStatus(e.target.value as AvailabilityStatus)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-              >
-                <option value="">בחר</option>
-                <option value="full">עמדה בזמינות</option>
-                <option value="partial">עמדה חלקית</option>
-                <option value="unavailable">לא עמדה בזמינות</option>
-              </select>
+              <div>
+                <p className="text-sm text-gray-300 mb-2">אחיזת מיוצגות - פלטפורמות</p>
+                <div className="rounded-lg border border-gray-800 overflow-hidden">
+                  <div className="grid grid-cols-3 bg-gray-800 text-xs text-gray-300 px-3 py-2">
+                    <span>מודל</span>
+                    <span className="text-center">טלגרם</span>
+                    <span className="text-center">אונלי</span>
+                  </div>
+                  {models.map((model) => (
+                    <div key={model.id} className="grid grid-cols-3 px-3 py-2 border-t border-gray-800 text-sm">
+                      <span className="text-white">{model.name}</span>
+                      <label className="flex justify-center">
+                        <input
+                          type="checkbox"
+                          checked={assignments[model.id]?.telegram ?? false}
+                          onChange={() => toggleAssignment(model.id, 'telegram')}
+                        />
+                      </label>
+                      <label className="flex justify-center">
+                        <input
+                          type="checkbox"
+                          checked={assignments[model.id]?.onlyfans ?? false}
+                          onChange={() => toggleAssignment(model.id, 'onlyfans')}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+          )}
 
-            {(availabilityStatus === 'partial' || availabilityStatus === 'unavailable') && (
-              <textarea
-                value={availabilityGapsDetail}
-                onChange={(e) => setAvailabilityGapsDetail(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
-                placeholder="במידה והיו פערים אנא פרטו"
-              />
-            )}
+          {step === 2 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-white">מהלך הפעילות</h3>
 
-            {[
-              {
-                label: 'האם ישנם חובות?',
-                value: hasDebts,
-                setValue: setHasDebts,
-                detail: debtsDetail,
-                setDetail: setDebtsDetail,
-                placeholder: 'אנא נמקו',
-              },
-              {
-                label: 'האם ישנן מכירות שממתינות?',
-                value: hasPendingSales,
-                setValue: setHasPendingSales,
-                detail: pendingSalesDetail,
-                setDetail: setPendingSalesDetail,
-                placeholder: 'אנא פרטו',
-              },
-              {
-                label: 'האם היו אירועים חריגים?',
-                value: hasUnusualEvents,
-                setValue: setHasUnusualEvents,
-                detail: unusualEventsDetail,
-                setDetail: setUnusualEventsDetail,
-                placeholder: 'אנא פרטו',
-              },
-            ].map((section) => (
-              <div key={section.label} className="space-y-2">
-                <p className="text-sm text-gray-300">{section.label}</p>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">פערים בזמינות מיוצגת</label>
+                <select
+                  value={availabilityStatus}
+                  onChange={(e) => setAvailabilityStatus(e.target.value as AvailabilityStatus)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                >
+                  <option value="">בחר</option>
+                  <option value="full">עמדה בזמינות</option>
+                  <option value="partial">עמדה חלקית</option>
+                  <option value="unavailable">לא עמדה בזמינות</option>
+                </select>
+              </div>
+
+              {(availabilityStatus === 'partial' || availabilityStatus === 'unavailable') && (
+                <textarea
+                  value={availabilityGapsDetail}
+                  onChange={(e) => setAvailabilityGapsDetail(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
+                  placeholder="במידה והיו פערים אנא פרטו"
+                />
+              )}
+
+              {[
+                {
+                  label: 'האם ישנם חובות?',
+                  value: hasDebts,
+                  setValue: setHasDebts,
+                  detail: debtsDetail,
+                  setDetail: setDebtsDetail,
+                  placeholder: 'אנא נמקו',
+                },
+                {
+                  label: 'האם ישנן מכירות שממתינות?',
+                  value: hasPendingSales,
+                  setValue: setHasPendingSales,
+                  detail: pendingSalesDetail,
+                  setDetail: setPendingSalesDetail,
+                  placeholder: 'אנא פרטו',
+                },
+                {
+                  label: 'האם היו אירועים חריגים?',
+                  value: hasUnusualEvents,
+                  setValue: setHasUnusualEvents,
+                  detail: unusualEventsDetail,
+                  setDetail: setUnusualEventsDetail,
+                  placeholder: 'אנא פרטו',
+                },
+              ].map((section) => (
+                <div key={section.label} className="space-y-2">
+                  <p className="text-sm text-gray-300">{section.label}</p>
+                  <div className="flex gap-4 text-sm">
+                    <label className="flex items-center gap-1 text-white">
+                      <input
+                        type="radio"
+                        checked={section.value === true}
+                        onChange={() => section.setValue(true)}
+                      />
+                      כן
+                    </label>
+                    <label className="flex items-center gap-1 text-white">
+                      <input
+                        type="radio"
+                        checked={section.value === false}
+                        onChange={() => section.setValue(false)}
+                      />
+                      לא
+                    </label>
+                  </div>
+                  {section.value === true && (
+                    <textarea
+                      value={section.detail}
+                      onChange={(e) => section.setDetail(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[80px]"
+                      placeholder={section.placeholder}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-white">סיכום אישי</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {[
+                  { label: 'טלגרם', value: incomeTelegram, setValue: setIncomeTelegram },
+                  { label: 'אונלי', value: incomeOnlyfans, setValue: setIncomeOnlyfans },
+                  { label: 'חוץ', value: incomeOther, setValue: setIncomeOther },
+                ].map((field) => (
+                  <div key={field.label}>
+                    <label className="block text-sm text-gray-300 mb-1">{field.label}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={field.value}
+                      onChange={(e) => field.setValue(Number(e.target.value) || 0)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-sm text-gray-200">סה״כ: ₪{totalIncome}</div>
+
+              <div>
+                <p className="text-sm text-gray-300 mb-2">האם כלל ההפקדות אומתו?</p>
                 <div className="flex gap-4 text-sm">
                   <label className="flex items-center gap-1 text-white">
                     <input
                       type="radio"
-                      checked={section.value === true}
-                      onChange={() => section.setValue(true)}
+                      checked={allDepositsVerified === true}
+                      onChange={() => setAllDepositsVerified(true)}
                     />
                     כן
                   </label>
                   <label className="flex items-center gap-1 text-white">
                     <input
                       type="radio"
-                      checked={section.value === false}
-                      onChange={() => section.setValue(false)}
+                      checked={allDepositsVerified === false}
+                      onChange={() => setAllDepositsVerified(false)}
                     />
                     לא
                   </label>
                 </div>
-                {section.value === true && (
-                  <textarea
-                    value={section.detail}
-                    onChange={(e) => section.setDetail(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[80px]"
-                    placeholder={section.placeholder}
-                  />
-                )}
               </div>
-            ))}
-          </div>
-        )}
 
-        {step === 3 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-white">סיכום אישי</h3>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">הצעות לשיפור/ייעול</label>
+                <textarea
+                  value={improvementSuggestions}
+                  onChange={(e) => setImprovementSuggestions(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
+                />
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                { label: 'טלגרם', value: incomeTelegram, setValue: setIncomeTelegram },
-                { label: 'אונלי', value: incomeOnlyfans, setValue: setIncomeOnlyfans },
-                { label: 'חוץ', value: incomeOther, setValue: setIncomeOther },
-              ].map((field) => (
-                <div key={field.label}>
-                  <label className="block text-sm text-gray-300 mb-1">{field.label}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={field.value}
-                    onChange={(e) => field.setValue(Number(e.target.value) || 0)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="text-sm text-gray-200">סה״כ: ₪{totalIncome}</div>
-
-            <div>
-              <p className="text-sm text-gray-300 mb-2">האם כלל ההפקדות אומתו?</p>
-              <div className="flex gap-4 text-sm">
-                <label className="flex items-center gap-1 text-white">
-                  <input
-                    type="radio"
-                    checked={allDepositsVerified === true}
-                    onChange={() => setAllDepositsVerified(true)}
-                  />
-                  כן
-                </label>
-                <label className="flex items-center gap-1 text-white">
-                  <input
-                    type="radio"
-                    checked={allDepositsVerified === false}
-                    onChange={() => setAllDepositsVerified(false)}
-                  />
-                  לא
-                </label>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">בקשת תוכן</label>
+                <textarea
+                  value={contentRequest}
+                  onChange={(e) => setContentRequest(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
+                />
               </div>
             </div>
+          )}
 
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">הצעות לשיפור/ייעול</label>
-              <textarea
-                value={improvementSuggestions}
-                onChange={(e) => setImprovementSuggestions(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
-              />
+          {step === 4 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-white">נקודות אישיות</h3>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">נקודה לשיפור עצמי</label>
+                <textarea
+                  value={selfImprovementPoint}
+                  onChange={(e) => setSelfImprovementPoint(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">נקודה לשימור עצמי</label>
+                <textarea
+                  value={selfPreservationPoint}
+                  onChange={(e) => setSelfPreservationPoint(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
+                />
+              </div>
             </div>
-
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">בקשת תוכן</label>
-              <textarea
-                value={contentRequest}
-                onChange={(e) => setContentRequest(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
-              />
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-white">נקודות אישיות</h3>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">נקודה לשיפור עצמי</label>
-              <textarea
-                value={selfImprovementPoint}
-                onChange={(e) => setSelfImprovementPoint(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">נקודה לשימור עצמי</label>
-              <textarea
-                value={selfPreservationPoint}
-                onChange={(e) => setSelfPreservationPoint(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white min-h-[90px]"
-              />
-            </div>
-          </div>
-        )}
+          )}
+        </fieldset>
 
         {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
 
         <div className="flex items-center justify-between mt-6">
-          <button
-            onClick={goBack}
-            disabled={step === 1 || submitting}
-            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm"
-          >
-            חזרה
-          </button>
-
-          {step < 4 ? (
+          {submitted ? (
             <button
-              onClick={goNext}
-              disabled={submitting}
+              onClick={onClose}
               className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm"
             >
-              הבא
+              סגור
             </button>
           ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm"
-            >
-              {submitting ? 'שולח...' : 'שלח סיכום'}
-            </button>
+            <>
+              <button
+                onClick={goBack}
+                disabled={step === 1 || formLocked}
+                className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm"
+              >
+                חזרה
+              </button>
+
+              {step < 4 ? (
+                <button
+                  onClick={goNext}
+                  disabled={formLocked}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  הבא
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={formLocked}
+                  className="bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  {submitting ? 'שולח...' : 'שלח סיכום'}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

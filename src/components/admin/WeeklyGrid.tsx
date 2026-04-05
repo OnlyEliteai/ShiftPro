@@ -26,11 +26,43 @@ export function WeeklyGrid({
 
   async function handleGenerateSlots() {
     setGeneratingSlots(true);
-    const { error } = await supabase.rpc('generate_weekly_shift_slots');
+    const nextWeekDates = getWeekDates(1);
+    const rows = nextWeekDates.flatMap((date) => [
+      {
+        date,
+        shift_type: 'morning' as const,
+        model: null,
+        platform: null,
+        max_chatters: 1,
+        status: 'open' as const,
+      },
+      {
+        date,
+        shift_type: 'evening' as const,
+        model: null,
+        platform: null,
+        max_chatters: 1,
+        status: 'open' as const,
+      },
+    ]);
+
+    const { data, error } = await supabase
+      .from('shift_slots')
+      .upsert(rows, {
+        onConflict: 'date,shift_type',
+        ignoreDuplicates: true,
+      })
+      .select('id');
+
     if (error) {
       showToast?.('error', error.message);
     } else {
-      showToast?.('success', LABELS.slotsGenerated);
+      const createdCount = data?.length ?? 0;
+      if (createdCount === 0) {
+        showToast?.('success', 'כל החלונות לשבוע הזה כבר קיימים');
+      } else {
+        showToast?.('success', `נוצרו ${createdCount} חלונות חדשים`);
+      }
     }
     setGeneratingSlots(false);
   }

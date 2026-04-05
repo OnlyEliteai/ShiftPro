@@ -6,7 +6,7 @@ import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import { LABELS, formatTime, cn } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
-import { supabase, callEdgeFunction } from '../lib/supabase';
+import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
 import type { Model, Shift, ShiftSlot } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
@@ -178,6 +178,43 @@ interface GroupedAvailableSlot {
 
 function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
   return shiftType === 'morning' ? 0 : 1;
+}
+
+function mapClockInErrorMessage(status: number, rawMessage?: string) {
+  const tooEarlyMessage = 'עוד מוקדם מדי — אפשר לסמן כניסה עד 30 דקות לפני תחילת המשמרת';
+  const tooLateMessage = 'המשמרת כבר עברה — פנה למנהל';
+  const alreadyClockedInMessage = 'כבר סימנת כניסה למשמרת הזו';
+
+  const normalized = (rawMessage ?? '').toLowerCase();
+  if (
+    normalized.includes('מוקדם') ||
+    normalized.includes('too early') ||
+    normalized.includes('before')
+  ) {
+    return tooEarlyMessage;
+  }
+  if (
+    normalized.includes('עברה') ||
+    normalized.includes('too late') ||
+    normalized.includes('passed') ||
+    normalized.includes('after')
+  ) {
+    return tooLateMessage;
+  }
+  if (
+    normalized.includes('כבר') ||
+    normalized.includes('already') ||
+    normalized.includes('not in scheduled') ||
+    normalized.includes('active')
+  ) {
+    return alreadyClockedInMessage;
+  }
+
+  if ((status === 400 || status === 403) && rawMessage) {
+    return rawMessage;
+  }
+
+  return LABELS.clockInError;
 }
 
 function formatHebrewDate(dateString: string) {
@@ -382,6 +419,14 @@ export function ChatterPage() {
       return;
     }
 
+    const seen = new Set<string>();
+    const uniqueSlotRows = slotRows.filter((slot) => {
+      const key = `${slot.date}-${slot.shift_type}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
     const { data: occupancyData, error: occupancyError } = await supabase
       .from('shifts')
       .select('chatter_id, date, start_time, status')
@@ -395,28 +440,19 @@ export function ChatterPage() {
     }
 
     const grouped = new Map<string, GroupedAvailableSlot>();
-    for (const slot of slotRows) {
+    for (const slot of uniqueSlotRows) {
       const key = getSlotKey(slot.date, slot.shift_type);
-      const existing = grouped.get(key);
-      if (!existing) {
-        grouped.set(key, {
-          key,
-          date: slot.date,
-          shift_type: slot.shift_type,
-          total_capacity: 1,
-          occupied: 0,
-          is_full: false,
-          chatter_signed_up: false,
-          signup_slot_id: slot.status === 'open' ? slot.id : null,
-          queue_slot_id: slot.id,
-        });
-        continue;
-      }
-
-      existing.total_capacity += 1;
-      if (!existing.signup_slot_id && slot.status === 'open') {
-        existing.signup_slot_id = slot.id;
-      }
+      grouped.set(key, {
+        key,
+        date: slot.date,
+        shift_type: slot.shift_type,
+        total_capacity: Math.max(1, Number(slot.max_chatters ?? 1)),
+        occupied: 0,
+        is_full: false,
+        chatter_signed_up: false,
+        signup_slot_id: slot.status === 'open' ? slot.id : null,
+        queue_slot_id: slot.id,
+      });
     }
 
     for (const shift of (occupancyData ?? []) as Pick<Shift, 'chatter_id' | 'date' | 'start_time'>[]) {
@@ -602,38 +638,28 @@ export function ChatterPage() {
   async function handleClockIn(shift: Shift) {
     if (!chatter) return;
     setActionShiftId(shift.id);
-    const nowIso = new Date().toISOString();
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/clock-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: chatter.token, shiftId: shift.id }),
+      });
 
-    const { data: updatedShift, error: updateError } = await supabase
-      .from('shifts')
-      .update({ status: 'active', clocked_in: nowIso })
-      .eq('id', shift.id)
-      .eq('chatter_id', chatter.id)
-      .eq('status', 'scheduled')
-      .select('id')
-      .maybeSingle();
+      const payload = await response.json().catch(() => ({} as { error?: string; success?: boolean }));
+      if (!response.ok || payload.success === false) {
+        showToast('error', mapClockInErrorMessage(response.status, payload.error));
+        return;
+      }
 
-    if (updateError || !updatedShift) {
-      showToast('error', LABELS.clockInError);
-      setActionShiftId(null);
-      return;
-    }
-
-    const { error: activityError } = await supabase.from('activity_log').insert({
-      shift_id: shift.id,
-      chatter_id: chatter.id,
-      action: 'clock_in',
-    });
-
-    if (activityError) {
+      showToast('success', LABELS.clockedInSuccess);
+      await fetchShiftData();
+    } catch {
       showToast('error', LABELS.noConnection);
+    } finally {
       setActionShiftId(null);
-      return;
     }
-
-    showToast('success', LABELS.clockedInSuccess);
-    setActionShiftId(null);
-    await fetchShiftData();
   }
 
   async function handleSmartClockIn() {
@@ -649,13 +675,14 @@ export function ChatterPage() {
       .eq('status', 'scheduled')
       .order('start_time', { ascending: true });
 
-    if (!todayShifts || todayShifts.length === 0) {
+    const shiftsToday = (todayShifts ?? []) as Shift[];
+    if (shiftsToday.length === 0) {
       showToast('error', LABELS.noShiftNow);
       return;
     }
 
     // Find shifts within -30 to +30 minutes of now
-    const eligible = todayShifts.filter(s => {
+    const eligible = shiftsToday.filter((s) => {
       const shiftMinutes = toWallClockMinutes(s.date, s.start_time);
       const diff = shiftMinutes - nowMinutes;
       return diff >= -30 && diff <= 30;
@@ -668,6 +695,23 @@ export function ChatterPage() {
 
     if (eligible.length === 1) {
       await handleClockIn(eligible[0] as Shift);
+      return;
+    }
+
+    if (eligible.length === 0) {
+      const nearest = shiftsToday.reduce<Shift | null>((best, current) => {
+        const currentDiff = Math.abs(toWallClockMinutes(current.date, current.start_time) - nowMinutes);
+        if (!best) return current;
+        const bestDiff = Math.abs(toWallClockMinutes(best.date, best.start_time) - nowMinutes);
+        return currentDiff < bestDiff ? current : best;
+      }, null);
+
+      if (!nearest) {
+        showToast('error', LABELS.noShiftNow);
+        return;
+      }
+
+      await handleClockIn(nearest);
       return;
     }
 
