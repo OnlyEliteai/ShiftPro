@@ -8,6 +8,19 @@ export interface Chatter {
   updated_at: string;
 }
 
+export type Platform = 'telegram' | 'onlyfans';
+
+export interface ShiftAssignment {
+  id: string;
+  shift_id: string;
+  model_id: string | null;
+  model: string;
+  platform: Platform;
+  shift_date: string;
+  shift_start_time: string;
+  assigned_at: string;
+}
+
 export interface Shift {
   id: string;
   chatter_id: string;
@@ -15,13 +28,14 @@ export interface Shift {
   start_time: string;
   end_time: string;
   model: string | null;
-  platform: 'telegram' | 'onlyfans' | null;
+  platform: Platform | null;
   model_id: string | null;
   status: 'pending' | 'scheduled' | 'active' | 'completed' | 'missed' | 'rejected' | 'cancelled';
   clocked_in: string | null;
   clocked_out: string | null;
   created_at: string;
   updated_at: string;
+  shift_assignments?: ShiftAssignment[] | null;
 }
 
 export interface ReminderLog {
@@ -80,6 +94,7 @@ export interface Model {
 
 export interface ShiftWithChatter extends Shift {
   chatters?: { name: string; phone: string };
+  shift_assignments?: ShiftAssignment[] | null;
 }
 
 export interface ShiftSlot {

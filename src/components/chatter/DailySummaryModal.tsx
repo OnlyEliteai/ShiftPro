@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import type { Model, Shift } from '../../lib/types';
 
@@ -17,6 +17,17 @@ interface ModelAssignmentState {
   model_name: string;
   telegram: boolean;
   onlyfans: boolean;
+}
+
+function buildInitialAssignments(models: Model[]) {
+  return models.reduce<Record<string, ModelAssignmentState>>((acc, model) => {
+    acc[model.id] = {
+      model_name: model.name,
+      telegram: false,
+      onlyfans: false,
+    };
+    return acc;
+  }, {});
 }
 
 function getDayOfWeekHebrew(date: string): string {
@@ -45,25 +56,9 @@ export function DailySummaryModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const initialAssignments = useMemo(() => {
-    const base: Record<string, ModelAssignmentState> = {};
-    for (const model of models) {
-      base[model.id] = {
-        model_name: model.name,
-        telegram: false,
-        onlyfans: false,
-      };
-    }
-    if (shift.model_id && base[shift.model_id]) {
-      if (shift.platform === 'telegram') base[shift.model_id].telegram = true;
-      if (shift.platform === 'onlyfans') base[shift.model_id].onlyfans = true;
-    }
-    return base;
-  }, [models, shift.model_id, shift.platform]);
-
-  const [assignments, setAssignments] =
-    useState<Record<string, ModelAssignmentState>>(initialAssignments);
+  const [assignments, setAssignments] = useState<Record<string, ModelAssignmentState>>(() =>
+    buildInitialAssignments(models)
+  );
 
   const [availabilityStatus, setAvailabilityStatus] = useState<AvailabilityStatus | ''>('');
   const [availabilityGapsDetail, setAvailabilityGapsDetail] = useState('');
@@ -86,6 +81,46 @@ export function DailySummaryModal({
 
   const totalIncome = incomeTelegram + incomeOnlyfans + incomeOther;
   const formLocked = submitting || submitted;
+
+  useEffect(() => {
+    let active = true;
+    const baseAssignments = buildInitialAssignments(models);
+
+    const modelIdByName = new Map<string, string>();
+    for (const model of models) {
+      modelIdByName.set(model.name.trim().toLowerCase(), model.id);
+    }
+
+    const loadAssignments = async () => {
+      const { data, error: fetchError } = await supabase
+        .from('shift_assignments')
+        .select('model_id, model, platform')
+        .eq('shift_id', shift.id);
+
+      if (!active) {
+        return;
+      }
+      if (fetchError || !data) {
+        setAssignments(baseAssignments);
+        return;
+      }
+
+      const next = buildInitialAssignments(models);
+      for (const row of data as { model_id: string | null; model: string; platform: 'telegram' | 'onlyfans' }[]) {
+        const modelId = row.model_id ?? modelIdByName.get(row.model.trim().toLowerCase()) ?? null;
+        if (!modelId || !next[modelId]) continue;
+        if (row.platform === 'telegram') next[modelId].telegram = true;
+        if (row.platform === 'onlyfans') next[modelId].onlyfans = true;
+      }
+
+      setAssignments(next);
+    };
+
+    void loadAssignments();
+    return () => {
+      active = false;
+    };
+  }, [models, shift.id]);
 
   const assignmentPayload = useMemo(() => {
     return Object.values(assignments)

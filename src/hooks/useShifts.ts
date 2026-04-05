@@ -3,6 +3,12 @@ import { supabase } from '../lib/supabase';
 import type { ShiftWithChatter } from '../lib/types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+const SHIFT_SELECT_WITH_ASSIGNMENTS = `
+  *,
+  chatters(name, phone),
+  shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)
+`;
+
 interface UseShiftsReturn {
   shifts: ShiftWithChatter[];
   loading: boolean;
@@ -27,7 +33,7 @@ export function useShifts(): UseShiftsReturn {
 
     let query = supabase
       .from('shifts')
-      .select('*, chatters(name, phone)')
+      .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
       .order('date', { ascending: true })
       .order('start_time', { ascending: true });
 
@@ -51,7 +57,7 @@ export function useShifts(): UseShiftsReturn {
         // Fetch just this shift so we get the joined chatter data
         supabase
           .from('shifts')
-          .select('*, chatters(name, phone)')
+          .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
           .eq('id', (newRow as { id: string }).id)
           .single()
           .then(({ data }) => {
@@ -73,7 +79,7 @@ export function useShifts(): UseShiftsReturn {
       if (eventType === 'UPDATE') {
         supabase
           .from('shifts')
-          .select('*, chatters(name, phone)')
+          .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
           .eq('id', (newRow as { id: string }).id)
           .single()
           .then(({ data }) => {
@@ -109,6 +115,14 @@ export function useShifts(): UseShiftsReturn {
           { event: '*', schema: 'public', table: 'shifts' },
           handleChange
         )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'shift_assignments' },
+          () => {
+            const { start, end } = dateRangeRef.current;
+            void fetchShifts(start, end);
+          }
+        )
         .subscribe((status) => {
           if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
             if (retryCountRef.current < MAX_RETRIES) {
@@ -136,7 +150,7 @@ export function useShifts(): UseShiftsReturn {
         channelRef.current = null;
       }
     };
-  }, [handleChange]);
+  }, [handleChange, fetchShifts]);
 
   // Initial load
   useEffect(() => {

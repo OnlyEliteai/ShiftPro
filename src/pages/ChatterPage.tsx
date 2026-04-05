@@ -8,10 +8,14 @@ import { LABELS, formatTime, cn } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
 import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import type { Model, Shift, ShiftSlot } from '../lib/types';
+import type { Model, Platform, Shift, ShiftAssignment, ShiftSlot } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
+const SHIFT_SELECT_WITH_ASSIGNMENTS = `
+  *,
+  shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)
+`;
 
 interface IsraelDateParts {
   year: number;
@@ -134,10 +138,39 @@ function getShiftTypeLabel(startTime: string) {
   return hour < 19 ? 'בוקר' : 'ערב';
 }
 
-function getPlatformLabel(platform: Shift['platform']) {
-  if (platform === 'telegram') return 'טלגרם';
-  if (platform === 'onlyfans') return 'אונליפאנס';
-  return 'לא צוין';
+function getPlatformLabel(platform: Platform) {
+  return platform === 'telegram' ? 'טלגרם' : 'אונליפאנס';
+}
+
+function getShiftAssignments(shift: Shift): Pick<ShiftAssignment, 'model' | 'platform'>[] {
+  if (shift.shift_assignments && shift.shift_assignments.length > 0) {
+    return shift.shift_assignments.map((assignment) => ({
+      model: assignment.model,
+      platform: assignment.platform,
+    }));
+  }
+
+  if (shift.model && shift.platform) {
+    return [{ model: shift.model, platform: shift.platform }];
+  }
+
+  return [];
+}
+
+function formatAssignmentsSummary(shift: Shift) {
+  const assignments = getShiftAssignments(shift);
+  if (assignments.length === 0) return '';
+
+  const byPlatform = new Map<Platform, string[]>();
+  for (const assignment of assignments) {
+    const list = byPlatform.get(assignment.platform) ?? [];
+    list.push(assignment.model);
+    byPlatform.set(assignment.platform, list);
+  }
+
+  return Array.from(byPlatform.entries())
+    .map(([platform, models]) => `${models.join(', ')} (${getPlatformLabel(platform)})`)
+    .join(' • ');
 }
 
 function getSlotTypeLabel(shiftType: ShiftSlot['shift_type']) {
@@ -300,7 +333,7 @@ export function ChatterPage() {
     const [weeklyRes, upcomingRes, activeRes] = await Promise.all([
       supabase
         .from('shifts')
-        .select('*')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
         .eq('chatter_id', chatter.id)
         .gte('date', weekRange.start)
         .lte('date', weekRange.end)
@@ -308,7 +341,7 @@ export function ChatterPage() {
         .order('start_time', { ascending: true }),
       supabase
         .from('shifts')
-        .select('*')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
         .eq('chatter_id', chatter.id)
         .eq('status', 'scheduled')
         .gte('date', today)
@@ -316,7 +349,7 @@ export function ChatterPage() {
         .order('start_time', { ascending: true }),
       supabase
         .from('shifts')
-        .select('*')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
         .eq('chatter_id', chatter.id)
         .eq('status', 'active')
         .order('date', { ascending: false })
@@ -610,6 +643,13 @@ export function ChatterPage() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'shift_assignments' },
+        () => {
+          void fetchShiftData();
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'monthly_goals', filter: `chatter_id=eq.${chatter.id}` },
         () => { void fetchMonthlyProgress(); }
       )
@@ -669,7 +709,7 @@ export function ChatterPage() {
 
     const { data: todayShifts } = await supabase
       .from('shifts')
-      .select('*')
+      .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
       .eq('chatter_id', chatter.id)
       .eq('date', today)
       .eq('status', 'scheduled')
@@ -844,8 +884,10 @@ export function ChatterPage() {
                   {formatTime(activeShift.start_time)}–{formatTime(activeShift.end_time)}
                 </p>
                 <p className="text-gray-300">
-                  מודל: {activeShift.model ?? LABELS.modelNotFound} • פלטפורמה:{' '}
-                  {getPlatformLabel(activeShift.platform)} • סוג: {getShiftTypeLabel(activeShift.start_time)}
+                  {formatAssignmentsSummary(activeShift)
+                    ? `המודלים שלך: ${formatAssignmentsSummary(activeShift)}`
+                    : 'טרם שובץ מודל למשמרת הזו'}{' '}
+                  • סוג: {getShiftTypeLabel(activeShift.start_time)}
                 </p>
               </div>
               <button
@@ -876,8 +918,10 @@ export function ChatterPage() {
                     {formatTime(nextShift.start_time)}–{formatTime(nextShift.end_time)}
                   </p>
                   <p className="text-gray-300">
-                    מודל: {nextShift.model ?? LABELS.modelNotFound} • פלטפורמה:{' '}
-                    {getPlatformLabel(nextShift.platform)} • סוג: {getShiftTypeLabel(nextShift.start_time)}
+                    {formatAssignmentsSummary(nextShift)
+                      ? `המודלים שלך: ${formatAssignmentsSummary(nextShift)}`
+                      : 'טרם שובץ מודל למשמרת הזו'}{' '}
+                    • סוג: {getShiftTypeLabel(nextShift.start_time)}
                   </p>
                 </div>
                 <button
@@ -977,15 +1021,10 @@ export function ChatterPage() {
 
                       <div className="text-xs text-gray-300 flex items-center gap-2 flex-wrap">
                         <span>סוג: {getShiftTypeLabel(shift.start_time)}</span>
-                        {!shift.model || !shift.platform ? (
+                        {!formatAssignmentsSummary(shift) ? (
                           <span className="text-gray-500">טרם שובץ</span>
                         ) : (
-                          <>
-                            <span>מודל: {shift.model}</span>
-                            <span className="px-1.5 py-0.5 rounded bg-gray-700 text-gray-200">
-                              {getPlatformLabel(shift.platform)}
-                            </span>
-                          </>
+                          <span>המודלים שלך: {formatAssignmentsSummary(shift)}</span>
                         )}
                       </div>
 
@@ -1127,7 +1166,7 @@ export function ChatterPage() {
                   {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
                 </p>
                 <p className="text-xs text-gray-400">
-                  {shift.model ?? ''} • {getShiftTypeLabel(shift.start_time)}
+                  {formatAssignmentsSummary(shift) || 'טרם שובץ'} • {getShiftTypeLabel(shift.start_time)}
                 </p>
               </button>
             ))}

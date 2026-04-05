@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronLeft, Plus, CalendarPlus } from 'lucide-react';
-import type { Shift, ShiftWithChatter } from '../../lib/types';
+import type { Platform, Shift, ShiftAssignment, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
@@ -107,14 +107,23 @@ export function WeeklyGrid({
     return `${start} - ${end}`;
   }
 
-  function getPlatformBadge(platform: ShiftWithChatter['platform']) {
-    if (platform === 'telegram') {
-      return { label: '📱 טלגרם', className: 'bg-blue-500/20 text-blue-300' };
+  function getPlatformLabel(platform: Platform) {
+    return platform === 'telegram' ? 'טלגרם' : 'אונליפאנס';
+  }
+
+  function getShiftAssignments(shift: ShiftWithChatter): Pick<ShiftAssignment, 'model' | 'platform'>[] {
+    if (shift.shift_assignments && shift.shift_assignments.length > 0) {
+      return shift.shift_assignments.map((assignment) => ({
+        model: assignment.model,
+        platform: assignment.platform,
+      }));
     }
-    if (platform === 'onlyfans') {
-      return { label: '🔵 אונלי', className: 'bg-indigo-500/20 text-indigo-300' };
+
+    if (shift.model && shift.platform) {
+      return [{ model: shift.model, platform: shift.platform }];
     }
-    return null;
+
+    return [];
   }
 
   // Determine if a date is today
@@ -222,7 +231,14 @@ export function WeeklyGrid({
                   onClick={() => onAddShift(date, window.key)}
                 >
                   {shiftsByDateAndWindow[date][window.key].map((shift) => {
-                    const platformBadge = getPlatformBadge(shift.platform);
+                    const assignments = getShiftAssignments(shift);
+                    const groupedAssignments = new Map<Platform, string[]>();
+                    for (const assignment of assignments) {
+                      const modelsForPlatform = groupedAssignments.get(assignment.platform) ?? [];
+                      modelsForPlatform.push(assignment.model);
+                      groupedAssignments.set(assignment.platform, modelsForPlatform);
+                    }
+
                     return (
                       <div
                         key={shift.id}
@@ -248,15 +264,16 @@ export function WeeklyGrid({
                         <p className="text-xs font-semibold text-white truncate mb-1">
                           {shift.chatters?.name ?? '—'}
                         </p>
-                        {shift.model && (
-                          <p className="text-xs text-gray-300 truncate mb-1">{shift.model}</p>
-                        )}
-                        {platformBadge && (
-                          <span
-                            className={`inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded mb-2 ${platformBadge.className}`}
-                          >
-                            {platformBadge.label}
-                          </span>
+                        {assignments.length > 0 ? (
+                          <div className="mb-1 space-y-0.5">
+                            {Array.from(groupedAssignments.entries()).map(([platform, modelNames]) => (
+                              <p key={platform} className="text-[11px] text-gray-300 truncate">
+                                {getPlatformLabel(platform)}: {modelNames.join(', ')}
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500 truncate mb-1">טרם שובץ</p>
                         )}
                         <p className="text-[11px] text-gray-400 font-mono mb-1">
                           {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
