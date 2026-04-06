@@ -396,7 +396,8 @@ export function ChatterPage() {
     if (!chatter) return;
     setLoadingShifts(true);
 
-    const today = getIsraelTodayDateKey();
+    const yesterdayParts = getIsraelDateParts(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const yesterday = toDateKey(yesterdayParts.year, yesterdayParts.month, yesterdayParts.day);
     const [weeklyRes, upcomingRes, activeRes] = await Promise.all([
       supabase
         .from('shifts')
@@ -411,7 +412,7 @@ export function ChatterPage() {
         .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
         .eq('chatter_id', chatter.id)
         .eq('status', 'scheduled')
-        .gte('date', today)
+        .gte('date', yesterday)
         .order('date', { ascending: true })
         .order('start_time', { ascending: true }),
       supabase
