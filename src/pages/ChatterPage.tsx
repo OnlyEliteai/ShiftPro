@@ -223,6 +223,11 @@ interface GroupedAvailableSlot {
   queue_slot_id: string | null;
 }
 
+interface OnlineChatter {
+  chatter_id: string;
+  name: string;
+}
+
 function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
   return shiftType === 'morning' ? 0 : 1;
 }
@@ -350,6 +355,8 @@ export function ChatterPage() {
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
   const [availableSlots, setAvailableSlots] = useState<GroupedAvailableSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [onlineChatters, setOnlineChatters] = useState<OnlineChatter[]>([]);
+  const [loadingOnlineChatters, setLoadingOnlineChatters] = useState(false);
   const [slotActionId, setSlotActionId] = useState<string | null>(null);
   const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
@@ -589,6 +596,66 @@ export function ChatterPage() {
     setLoadingSlots(false);
   }, [chatter, showToast]);
 
+  const fetchOnlineChatters = useCallback(async () => {
+    setLoadingOnlineChatters(true);
+    const today = getIsraelTodayDateKey();
+
+    const { data, error: onlineError } = await supabase
+      .from('shifts')
+      .select('chatter_id, chatters(name)')
+      .eq('date', today)
+      .eq('status', 'active');
+
+    if (onlineError) {
+      showToast('error', LABELS.noConnection);
+      setLoadingOnlineChatters(false);
+      return;
+    }
+
+    const unique = new Map<string, OnlineChatter>();
+    for (const row of (data ?? []) as Array<{
+      chatter_id: string;
+      chatters: { name?: string } | Array<{ name?: string }> | null;
+    }>) {
+      const chatterName = Array.isArray(row.chatters)
+        ? row.chatters[0]?.name
+        : row.chatters?.name;
+      if (!row.chatter_id || !chatterName) continue;
+      unique.set(row.chatter_id, { chatter_id: row.chatter_id, name: chatterName });
+    }
+
+    const sorted = Array.from(unique.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'he-IL')
+    );
+    setOnlineChatters(sorted);
+    setLoadingOnlineChatters(false);
+  }, [showToast]);
+
+  async function signUpToSlotInternal(slotGroup: GroupedAvailableSlot, chatterId: string) {
+    const timeWindow = getSlotTimeWindow(slotGroup.shift_type);
+    const { error: insertError } = await supabase.from('shifts').insert({
+      chatter_id: chatterId,
+      date: slotGroup.date,
+      start_time: timeWindow.start,
+      end_time: timeWindow.end,
+      model: null,
+      platform: null,
+      status: 'pending',
+    });
+
+    if (insertError) {
+      return insertError.message || LABELS.serverError;
+    }
+
+    await supabase.from('activity_log').insert({
+      chatter_id: chatterId,
+      action: 'sign_up',
+      metadata: { slot_id: slotGroup.signup_slot_id, slot_group: slotGroup.key },
+    });
+
+    return null;
+  }
+
   async function handleSignUpToSlot(slotGroup: GroupedAvailableSlot) {
     if (!chatter) return;
     const latestGroup = availableSlots.find((slot) => slot.key === slotGroup.key) ?? slotGroup;
@@ -602,31 +669,68 @@ export function ChatterPage() {
     }
 
     setSlotActionId(latestGroup.key);
+    const signUpError = await signUpToSlotInternal(latestGroup, chatter.id);
 
-    const timeWindow = getSlotTimeWindow(latestGroup.shift_type);
-    const { error: insertError } = await supabase.from('shifts').insert({
-      chatter_id: chatter.id,
-      date: latestGroup.date,
-      start_time: timeWindow.start,
-      end_time: timeWindow.end,
-      model: null,
-      platform: null,
-      status: 'pending',
-    });
-
-    if (insertError) {
-      showToast('error', insertError.message || LABELS.serverError);
+    if (signUpError) {
+      showToast('error', signUpError);
       setSlotActionId(null);
       return;
     }
 
-    await supabase.from('activity_log').insert({
-      chatter_id: chatter.id,
-      action: 'sign_up',
-      metadata: { slot_id: latestGroup.signup_slot_id, slot_group: latestGroup.key },
-    });
-
     showToast('success', LABELS.signedUp);
+    setSlotActionId(null);
+    await fetchShiftData();
+    await fetchAvailableSlots();
+  }
+
+  async function handleDoubleShiftSignUp(date: string, slots: GroupedAvailableSlot[]) {
+    if (!chatter) return;
+
+    const morning = slots.find((slot) => slot.shift_type === 'morning');
+    const evening = slots.find((slot) => slot.shift_type === 'evening');
+    if (!morning || !evening) {
+      showToast('error', LABELS.serverError);
+      return;
+    }
+
+    const latestMorning = availableSlots.find((slot) => slot.key === morning.key) ?? morning;
+    const latestEvening = availableSlots.find((slot) => slot.key === evening.key) ?? evening;
+    if (latestMorning.chatter_signed_up || latestEvening.chatter_signed_up) {
+      showToast('info', 'כבר נרשמת לאחת מהמשמרות ביום הזה');
+      return;
+    }
+    if (
+      latestMorning.is_full ||
+      latestEvening.is_full ||
+      !latestMorning.signup_slot_id ||
+      !latestEvening.signup_slot_id
+    ) {
+      showToast('error', 'לא ניתן להירשם למשמרת כפולה כרגע');
+      return;
+    }
+
+    const doubleActionKey = `double|${date}`;
+    setSlotActionId(doubleActionKey);
+
+    const morningError = await signUpToSlotInternal(latestMorning, chatter.id);
+    if (morningError) {
+      showToast('error', morningError);
+      setSlotActionId(null);
+      await fetchShiftData();
+      await fetchAvailableSlots();
+      return;
+    }
+
+    const eveningError = await signUpToSlotInternal(latestEvening, chatter.id);
+    if (eveningError) {
+      showToast('error', `נרשמת רק לבוקר. שגיאה בערב: ${eveningError}`);
+      setSlotActionId(null);
+      await fetchShiftData();
+      await fetchAvailableSlots();
+      return;
+    }
+
+    showToast('success', 'נרשמת למשמרת כפולה בהצלחה');
     setSlotActionId(null);
     await fetchShiftData();
     await fetchAvailableSlots();
@@ -696,12 +800,13 @@ export function ChatterPage() {
         void fetchModels();
         void fetchMonthlyProgress();
         void fetchAvailableSlots();
+        void fetchOnlineChatters();
       }
     });
     return () => {
       active = false;
     };
-  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots]);
+  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots, fetchOnlineChatters]);
 
   // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
   useEffect(() => {
@@ -722,6 +827,7 @@ export function ChatterPage() {
         { event: '*', schema: 'public', table: 'shifts' },
         () => {
           void fetchSharedScheduleData();
+          void fetchOnlineChatters();
         }
       )
       .on(
@@ -752,7 +858,7 @@ export function ChatterPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchMonthlyProgress, fetchAvailableSlots]);
+  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchMonthlyProgress, fetchAvailableSlots, fetchOnlineChatters]);
 
   const handleLogout = () => {
     logout();
@@ -981,6 +1087,33 @@ export function ChatterPage() {
               <p className="text-xs text-gray-400">{currentDateLabel}</p>
               <h1 className="text-xl font-bold text-white truncate">היי {displayName}!</h1>
             </div>
+          </section>
+
+          <section className="rounded-2xl border border-emerald-700/30 bg-gray-900 p-4">
+            <h2 className="text-base font-bold text-white mb-3">אונליין עכשיו</h2>
+            {loadingOnlineChatters ? (
+              <LoadingSpinner />
+            ) : onlineChatters.length === 0 ? (
+              <p className="text-sm text-gray-400">אף אחד לא אונליין כרגע</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {onlineChatters.map((onlineChatter) => (
+                  <div
+                    key={onlineChatter.chatter_id}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800/70 px-3 py-1.5"
+                  >
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    </span>
+                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300">
+                      {(onlineChatter.name.trim().charAt(0) || 'צ').toUpperCase()}
+                    </span>
+                    <span className="text-xs text-gray-100">{onlineChatter.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="rounded-2xl border border-gray-800 bg-gray-900 p-2">
@@ -1270,6 +1403,52 @@ export function ChatterPage() {
                         </article>
                       );
                     })}
+                    {slots.length >= 2 && (() => {
+                      const morningSlot = slots.find((slot) => slot.shift_type === 'morning');
+                      const eveningSlot = slots.find((slot) => slot.shift_type === 'evening');
+                      if (!morningSlot || !eveningSlot) return null;
+
+                      const isActingDouble = slotActionId === `double|${date}`;
+                      const hasAnySigned = morningSlot.chatter_signed_up || eveningSlot.chatter_signed_up;
+                      const hasAnyFull = morningSlot.is_full || eveningSlot.is_full;
+                      const canSignDouble =
+                        !hasAnySigned &&
+                        !hasAnyFull &&
+                        Boolean(morningSlot.signup_slot_id) &&
+                        Boolean(eveningSlot.signup_slot_id);
+
+                      return (
+                        <article className="rounded-xl border border-purple-500/40 bg-gradient-to-r from-purple-900/30 via-violet-900/25 to-fuchsia-900/30 p-3">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <p className="text-sm font-semibold text-white">משמרת כפולה</p>
+                              <p className="text-xs text-purple-200/90">12:00-19:00 + 19:00-02:00</p>
+                            </div>
+                            {hasAnySigned ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
+                                כבר נרשמת
+                              </span>
+                            ) : hasAnyFull ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-300">
+                                לא זמין
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/20 text-purple-200">
+                                פנוי
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={() => void handleDoubleShiftSignUp(date, slots)}
+                            disabled={isActingDouble || !canSignDouble}
+                            className="w-full min-h-[40px] rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium"
+                          >
+                            {isActingDouble ? '...' : 'הירשם למשמרת כפולה'}
+                          </button>
+                        </article>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
