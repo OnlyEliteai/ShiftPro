@@ -21,6 +21,7 @@ import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import type { Shift, ShiftWithChatter } from '../lib/types';
 import { LABELS, getWeekDates } from '../lib/utils';
+import { SUPABASE_URL, supabase } from '../lib/supabase';
 
 // ─── Form data type that ShiftEditor returns via onSave ───────────────────────
 
@@ -34,6 +35,19 @@ interface ShiftFormData {
   model_id: string;
   platform: 'telegram' | 'onlyfans' | null;
   status: Shift['status'];
+}
+
+interface BroadcastMessageResponse {
+  success?: boolean;
+  error?: string;
+  sent?: number;
+  failed?: number;
+  total_recipients?: number;
+  data?: {
+    sent?: number;
+    failed?: number;
+    total_recipients?: number;
+  };
 }
 
 // ─── Admin tabs ───────────────────────────────────────────────────────────────
@@ -114,6 +128,39 @@ export function AdminPage() {
     await signOut();
     navigate('/login', { replace: true });
   }, [signOut, navigate]);
+
+  const handleBroadcastMessage = useCallback(
+    async (message: string): Promise<{ sent: number; failed: number; total_recipients: number }> => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        throw new Error('לא ניתן לאמת מנהל כרגע');
+      }
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/broadcast-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as BroadcastMessageResponse;
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || 'שגיאה בשליחת ההודעה');
+      }
+
+      const result = payload.data ?? payload;
+      return {
+        sent: Number(result.sent ?? 0),
+        failed: Number(result.failed ?? 0),
+        total_recipients: Number(result.total_recipients ?? 0),
+      };
+    },
+    []
+  );
 
   // ── Schedule callbacks ──────────────────────────────────────────────────────
 
@@ -299,6 +346,8 @@ export function AdminPage() {
         activeTab={activeTab}
         onTabChange={(tab) => setActiveTab(tab as Tab)}
         onLogout={handleLogout}
+        onBroadcastMessage={handleBroadcastMessage}
+        showToast={showToast}
         errorCount={unresolvedErrorCount}
         pendingCount={pendingCount}
         adminName={profile?.display_name ?? profile?.email ?? null}

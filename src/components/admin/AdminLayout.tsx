@@ -11,14 +11,24 @@ import {
   LogOut,
   Menu,
   X,
+  MessageSquare,
+  Loader2,
 } from 'lucide-react';
 import { LABELS, cn } from '../../lib/utils';
+
+interface BroadcastResult {
+  sent: number;
+  failed: number;
+  total_recipients: number;
+}
 
 interface AdminLayoutProps {
   children: React.ReactNode;
   activeTab: string;
   onTabChange: (tab: string) => void;
   onLogout: () => void;
+  onBroadcastMessage: (message: string) => Promise<BroadcastResult>;
+  showToast: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void;
   errorCount?: number;
   pendingCount?: number;
   adminName?: string | null;
@@ -36,11 +46,16 @@ export function AdminLayout({
   activeTab,
   onTabChange,
   onLogout,
+  onBroadcastMessage,
+  showToast,
   errorCount = 0,
   pendingCount = 0,
   adminName,
 }: AdminLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
 
   const navItems: NavItem[] = useMemo(() => [
     {
@@ -93,6 +108,44 @@ export function AdminLayout({
   const handleTabChange = (tab: string) => {
     onTabChange(tab);
     setMobileMenuOpen(false);
+  };
+
+  const openBroadcastModal = () => {
+    setBroadcastMessage('');
+    setBroadcastOpen(true);
+  };
+
+  const closeBroadcastModal = () => {
+    if (sendingBroadcast) return;
+    setBroadcastOpen(false);
+    setBroadcastMessage('');
+  };
+
+  const submitBroadcast = async () => {
+    const trimmedMessage = broadcastMessage.trim();
+    if (!trimmedMessage || sendingBroadcast) return;
+
+    setSendingBroadcast(true);
+    try {
+      const result = await onBroadcastMessage(trimmedMessage);
+      showToast('success', `ההודעה נשלחה ל-${result.sent} משמרנים`);
+      if (result.failed > 0) {
+        showToast('warning', `${result.failed} הודעות נכשלו`);
+      }
+      if (result.total_recipients === 0) {
+        showToast('info', 'אין משמרנים פעילים כרגע');
+      }
+      setBroadcastOpen(false);
+      setBroadcastMessage('');
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'שגיאה בשליחת ההודעה';
+      showToast('error', message);
+    } finally {
+      setSendingBroadcast(false);
+    }
   };
 
   return (
@@ -161,12 +214,21 @@ export function AdminLayout({
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-white tracking-tight">ShiftPro</h1>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-        >
-          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openBroadcastModal}
+            className="inline-flex items-center gap-1 rounded-lg bg-gray-800 hover:bg-gray-700 px-2.5 py-2 text-xs font-medium text-gray-200 transition-colors"
+          >
+            <MessageSquare size={14} />
+            שלח הודעה
+          </button>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile Slide-down Menu */}
@@ -241,8 +303,58 @@ export function AdminLayout({
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto bg-gray-950 pt-[52px] pb-[60px] lg:pt-0 lg:pb-0">
+        <div className="hidden lg:flex items-center justify-end gap-3 px-6 py-3 border-b border-gray-800 bg-gray-900 sticky top-0 z-20">
+          <button
+            onClick={openBroadcastModal}
+            className="inline-flex items-center gap-2 rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium text-gray-100 transition-colors"
+          >
+            <MessageSquare size={16} />
+            שלח הודעה למשמרנים
+          </button>
+        </div>
         {children}
       </main>
+
+      {broadcastOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center px-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeBroadcastModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-5 space-y-4">
+            <h3 className="text-lg font-bold text-white">שלח הודעה למשמרנים</h3>
+            <textarea
+              value={broadcastMessage}
+              onChange={(event) => setBroadcastMessage(event.target.value)}
+              placeholder="כתוב הודעה לכל המשמרנים הפעילים..."
+              rows={5}
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              disabled={sendingBroadcast}
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void submitBroadcast()}
+                disabled={!broadcastMessage.trim() || sendingBroadcast}
+                className="min-h-[40px] px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium inline-flex items-center gap-2"
+              >
+                {sendingBroadcast && <Loader2 size={14} className="animate-spin" />}
+                שלח
+              </button>
+              <button
+                onClick={closeBroadcastModal}
+                disabled={sendingBroadcast}
+                className="min-h-[40px] px-4 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-60 text-gray-200 text-sm font-medium"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
