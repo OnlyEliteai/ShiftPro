@@ -127,6 +127,13 @@ function getMinutesUntilShift(shift: Shift) {
   return toWallClockMinutes(shift.date, shift.start_time) - getCurrentIsraelWallClockMinutes();
 }
 
+function getMinutesUntilShiftEnd(shift: Shift) {
+  const startMin = toWallClockMinutes(shift.date, shift.start_time);
+  let endMin = toWallClockMinutes(shift.date, shift.end_time);
+  if (endMin <= startMin) endMin += 24 * 60;
+  return endMin - getCurrentIsraelWallClockMinutes();
+}
+
 function formatRelativeTime(minutes: number) {
   if (minutes <= 0) return 'עכשיו';
   if (minutes < 60) return `בעוד ${minutes} דק׳`;
@@ -427,7 +434,12 @@ export function ChatterPage() {
     const weeklyData = (weeklyRes.data ?? []) as Shift[];
     const upcomingShifts = (upcomingRes.data ?? []) as Shift[];
     const nearestFutureShift =
-      upcomingShifts.find((shift) => getMinutesUntilShift(shift) >= 0) ?? null;
+      upcomingShifts
+        .filter((shift) => getMinutesUntilShiftEnd(shift) > 0)
+        .sort(
+          (a, b) =>
+            toWallClockMinutes(a.date, a.start_time) - toWallClockMinutes(b.date, b.start_time),
+        )[0] ?? null;
 
     setWeeklyShifts(weeklyData);
     setNextShift(nearestFutureShift);
