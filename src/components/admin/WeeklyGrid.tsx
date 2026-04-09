@@ -15,6 +15,15 @@ interface WeeklyGridProps {
   showToast?: (type: 'success' | 'error', message: string) => void;
 }
 
+interface TooltipState {
+  cellKey: string;
+  flipToLeft: boolean;
+}
+
+const TOOLTIP_WIDTH = 280;
+const TOOLTIP_SAFETY_MARGIN = 16;
+const COVERAGE_STATUSES = new Set<Shift['status']>(['scheduled', 'active', 'completed']);
+
 export function WeeklyGrid({
   shifts,
   models,
@@ -25,8 +34,8 @@ export function WeeklyGrid({
   showToast,
 }: WeeklyGridProps) {
   const [generatingSlots, setGeneratingSlots] = useState(false);
-  const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
-  const [tappedCellKey, setTappedCellKey] = useState<string | null>(null);
+  const [hoveredTooltip, setHoveredTooltip] = useState<TooltipState | null>(null);
+  const [tappedTooltip, setTappedTooltip] = useState<TooltipState | null>(null);
 
   async function handleGenerateSlots() {
     setGeneratingSlots(true);
@@ -82,12 +91,12 @@ export function WeeklyGrid({
     (window.matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0);
 
   useEffect(() => {
-    if (!isTouchDevice || !tappedCellKey) return;
+    if (!isTouchDevice || !tappedTooltip) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target?.closest('[data-coverage-cell="true"]')) {
-        setTappedCellKey(null);
+        setTappedTooltip(null);
       }
     };
 
@@ -95,7 +104,7 @@ export function WeeklyGrid({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
     };
-  }, [isTouchDevice, tappedCellKey]);
+  }, [isTouchDevice, tappedTooltip]);
 
   const shiftsByDateAndWindow: Record<
     string,
@@ -171,16 +180,29 @@ export function WeeklyGrid({
     return `${date}|${windowKey}`;
   }
 
+  function buildTooltipState(cellKey: string, element: HTMLDivElement): TooltipState {
+    const cellRect = element.getBoundingClientRect();
+    const flipToLeft = cellRect.left < TOOLTIP_WIDTH + TOOLTIP_SAFETY_MARGIN;
+    return { cellKey, flipToLeft };
+  }
+
+  function getCoverageKeyFromShift(shift: ShiftWithChatter): string | null {
+    if (!COVERAGE_STATUSES.has(shift.status)) return null;
+    if (!shift.model || !shift.platform) return null;
+
+    const resolvedModelId =
+      shift.model_id ?? modelIdByName.get(shift.model.trim().toLowerCase()) ?? null;
+    if (!resolvedModelId) return null;
+
+    return makeCoverageKey(resolvedModelId, shift.platform);
+  }
+
   function getCoveredAssignments(cellShifts: ShiftWithChatter[]) {
     const covered = new Set<string>();
 
     for (const shift of cellShifts) {
-      for (const assignment of getShiftAssignments(shift)) {
-        const resolvedModelId =
-          assignment.model_id ?? modelIdByName.get(assignment.model.trim().toLowerCase()) ?? null;
-        if (!resolvedModelId) continue;
-        covered.add(makeCoverageKey(resolvedModelId, assignment.platform));
-      }
+      const coverageKey = getCoverageKeyFromShift(shift);
+      if (coverageKey) covered.add(coverageKey);
     }
 
     return covered;
@@ -206,17 +228,22 @@ export function WeeklyGrid({
     };
   }
 
-  function handleCellClick(date: string, windowKey: 'morning' | 'evening') {
+  function handleCellClick(
+    date: string,
+    windowKey: 'morning' | 'evening',
+    element: HTMLDivElement
+  ) {
     const cellKey = getCellKey(date, windowKey);
+    const tooltipState = buildTooltipState(cellKey, element);
 
     if (isTouchDevice) {
-      if (tappedCellKey === cellKey) {
-        setTappedCellKey(null);
+      if (tappedTooltip?.cellKey === cellKey) {
+        setTappedTooltip(null);
         onAddShift(date, windowKey);
         return;
       }
 
-      setTappedCellKey(cellKey);
+      setTappedTooltip(tooltipState);
       return;
     }
 
@@ -278,8 +305,8 @@ export function WeeklyGrid({
       </div>
 
       {/* Grid */}
-      <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-        <div className="grid grid-cols-8 gap-2 min-w-[980px]">
+      <div className="overflow-x-auto overflow-y-visible -mx-4 sm:mx-0 px-4 sm:px-0">
+        <div className="grid grid-cols-8 gap-2 min-w-[980px] overflow-visible">
           <div className="text-center pb-2 border-b border-gray-700" />
           {weekDates.map((date, i) => (
             <div
@@ -320,25 +347,35 @@ export function WeeklyGrid({
                 const cellShifts = shiftsByDateAndWindow[date][window.key];
                 const cellKey = getCellKey(date, window.key);
                 const coverage = getCellCoverage(cellShifts);
-                const isTooltipVisible = (isTouchDevice ? tappedCellKey : hoveredCellKey) === cellKey;
+                const activeTooltip = isTouchDevice ? tappedTooltip : hoveredTooltip;
+                const isTooltipVisible = activeTooltip?.cellKey === cellKey;
+                const flipToLeft = activeTooltip?.flipToLeft ?? false;
 
                 return (
                   <div
                     key={`${window.key}-${date}`}
                     data-coverage-cell="true"
                     className={cn(
-                      'relative min-h-[170px] rounded-lg p-2 space-y-2 cursor-pointer transition-colors group border',
+                      'relative min-h-[170px] rounded-lg p-2 space-y-2 cursor-pointer transition-colors group border overflow-visible',
                       isToday(date)
                         ? 'bg-blue-950/20 border-blue-900/60'
                         : 'bg-gray-800/30 border-gray-800 hover:bg-gray-800/60'
                     )}
-                    onMouseEnter={() => {
-                      if (!isTouchDevice) setHoveredCellKey(cellKey);
+                    onMouseEnter={(event) => {
+                      if (!isTouchDevice) {
+                        setHoveredTooltip(
+                          buildTooltipState(cellKey, event.currentTarget as HTMLDivElement)
+                        );
+                      }
                     }}
                     onMouseLeave={() => {
-                      if (!isTouchDevice) setHoveredCellKey((prev) => (prev === cellKey ? null : prev));
+                      if (!isTouchDevice) {
+                        setHoveredTooltip((prev) => (prev?.cellKey === cellKey ? null : prev));
+                      }
                     }}
-                    onClick={() => handleCellClick(date, window.key)}
+                    onClick={(event) =>
+                      handleCellClick(date, window.key, event.currentTarget as HTMLDivElement)
+                    }
                   >
                     {cellShifts.map((shift) => {
                     const assignments = getShiftAssignments(shift);
@@ -394,13 +431,18 @@ export function WeeklyGrid({
                   })}
 
                     {isTooltipVisible && (
-                      <div className="pointer-events-none absolute z-30 right-full mr-2 top-1/2 -translate-y-1/2 w-56 max-w-[80vw] rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl xl:w-64 max-xl:right-0 max-xl:mr-0 max-xl:top-full max-xl:mt-2 max-xl:translate-y-0">
+                      <div
+                        className={cn(
+                          'pointer-events-none absolute z-30 top-1/2 -translate-y-1/2 w-[280px] max-w-[80vw] rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl',
+                          flipToLeft ? 'left-full ml-2' : 'right-full mr-2'
+                        )}
+                      >
                         <div className="grid grid-cols-3 bg-gray-950/70 px-2 py-1.5 text-[11px] text-gray-400 rounded-md">
                           <span>מודל</span>
                           <span className="text-center">טלגרם</span>
                           <span className="text-center">אונליפאנס</span>
                         </div>
-                        <div className="mt-1 max-h-52 overflow-y-auto">
+                        <div className="mt-1 max-h-[300px] overflow-y-auto overscroll-contain pointer-events-auto">
                           {models.map((model) => (
                             <div
                               key={`${cellKey}-${model.id}`}

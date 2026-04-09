@@ -4,7 +4,6 @@ import type { Chatter } from '../lib/types';
 
 interface UseChattersReturn {
   chatters: Chatter[];
-  lastClockInByChatter: Record<string, string>;
   loading: boolean;
   fetchChatters: () => Promise<void>;
   createChatter: (name: string, phone: string) => Promise<{ error: string | null }>;
@@ -15,7 +14,6 @@ interface UseChattersReturn {
 
 export function useChatters(): UseChattersReturn {
   const [chatters, setChatters] = useState<Chatter[]>([]);
-  const [lastClockInByChatter, setLastClockInByChatter] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const fetchChatters = useCallback(async () => {
@@ -27,24 +25,6 @@ export function useChatters(): UseChattersReturn {
 
     if (!error && data) {
       setChatters(data as Chatter[]);
-    }
-
-    const { data: shiftsData, error: shiftsError } = await supabase
-      .from('shifts')
-      .select('chatter_id, clocked_in')
-      .not('clocked_in', 'is', null)
-      .order('clocked_in', { ascending: false });
-
-    if (!shiftsError && shiftsData) {
-      const latestByChatter: Record<string, string> = {};
-      for (const row of shiftsData as { chatter_id: string; clocked_in: string }[]) {
-        if (!latestByChatter[row.chatter_id]) {
-          latestByChatter[row.chatter_id] = row.clocked_in;
-        }
-      }
-      setLastClockInByChatter(latestByChatter);
-    } else {
-      setLastClockInByChatter({});
     }
 
     setLoading(false);
@@ -134,7 +114,6 @@ export function useChatters(): UseChattersReturn {
 
   return {
     chatters,
-    lastClockInByChatter,
     loading,
     fetchChatters,
     createChatter,

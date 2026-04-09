@@ -7,14 +7,12 @@ import { ToastContainer } from '../shared/ToastContainer';
 
 interface ChatterManagerProps {
   chatters: Chatter[];
-  lastClockInByChatter: Record<string, string>;
   onAdd: (name: string, phone: string) => void;
   onDelete: (id: string) => void;
 }
 
 export function ChatterManager({
   chatters,
-  lastClockInByChatter,
   onAdd,
   onDelete,
 }: ChatterManagerProps) {
@@ -165,9 +163,9 @@ export function ChatterManager({
 
                   {/* Last clock-in */}
                   <td className="px-4 py-3 text-center">
-                    {lastClockInByChatter[chatter.id] ? (
+                    {chatter.last_sign_in_at ? (
                       <span className="text-gray-200 text-xs">
-                        {formatLastClockIn(lastClockInByChatter[chatter.id])}
+                        {formatLastClockIn(chatter.last_sign_in_at)}
                       </span>
                     ) : (
                       <span className="text-gray-500 text-xs">{LABELS.neverClockedIn}</span>

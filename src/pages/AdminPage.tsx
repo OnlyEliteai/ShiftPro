@@ -70,7 +70,6 @@ export function AdminPage() {
   const { shifts, loading: shiftsLoading, fetchShifts, createShift, updateShift, deleteShift } = useShifts();
   const {
     chatters,
-    lastClockInByChatter,
     loading: chattersLoading,
     createChatter,
     deleteChatter,
@@ -308,7 +307,6 @@ export function AdminPage() {
         return (
           <ChatterManager
             chatters={chatters}
-            lastClockInByChatter={lastClockInByChatter}
             onAdd={handleAddChatter}
             onDelete={handleDeleteChatter}
           />

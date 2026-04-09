@@ -4,6 +4,7 @@ export interface Chatter {
   phone: string;
   token: string;
   active: boolean;
+  last_sign_in_at: string | null;
   created_at: string;
   updated_at: string;
 }
