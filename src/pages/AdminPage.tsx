@@ -68,7 +68,13 @@ export function AdminPage() {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading, signOut } = useAdminAuth();
   const { shifts, loading: shiftsLoading, fetchShifts, createShift, updateShift, deleteShift } = useShifts();
-  const { chatters, loading: chattersLoading, createChatter, deleteChatter, toggleActive } = useChatters();
+  const {
+    chatters,
+    lastClockInByChatter,
+    loading: chattersLoading,
+    createChatter,
+    deleteChatter,
+  } = useChatters();
   const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
 
@@ -245,15 +251,6 @@ export function AdminPage() {
     [deleteChatter, showToast]
   );
 
-  const handleToggleActive = useCallback(
-    (id: string, active: boolean) => {
-      toggleActive(id, active).then(({ error }) => {
-        if (error) showToast('error', error);
-      });
-    },
-    [toggleActive, showToast]
-  );
-
   // ── Loading / auth guard ────────────────────────────────────────────────────
 
   if (authLoading) {
@@ -288,6 +285,7 @@ export function AdminPage() {
         return (
           <WeeklyGrid
             shifts={shifts as ShiftWithChatter[]}
+            models={models.filter((model) => model.active)}
             weekOffset={weekOffset}
             onWeekChange={setWeekOffset}
             onAddShift={openAddShift}
@@ -310,9 +308,9 @@ export function AdminPage() {
         return (
           <ChatterManager
             chatters={chatters}
+            lastClockInByChatter={lastClockInByChatter}
             onAdd={handleAddChatter}
             onDelete={handleDeleteChatter}
-            onToggleActive={handleToggleActive}
           />
         );
 

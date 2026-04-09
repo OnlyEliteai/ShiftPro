@@ -129,6 +129,8 @@ export const LABELS = {
   name: 'שם',
   phone: 'טלפון',
   status: 'סטטוס',
+  lastClockIn: 'כניסה אחרונה',
+  neverClockedIn: 'אף פעם',
   personalLink: 'לינק אישי',
   actions: 'פעולות',
   date: 'תאריך',

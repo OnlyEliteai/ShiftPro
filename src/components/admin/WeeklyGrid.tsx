@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronLeft, Plus, CalendarPlus } from 'lucide-react';
-import type { Platform, Shift, ShiftAssignment, ShiftWithChatter } from '../../lib/types';
+import type { Model, Platform, Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
+  models: Model[];
   weekOffset: number;
   onWeekChange: (offset: number) => void;
   onAddShift: (date: string, shiftType: 'morning' | 'evening') => void;
@@ -16,6 +17,7 @@ interface WeeklyGridProps {
 
 export function WeeklyGrid({
   shifts,
+  models,
   weekOffset,
   onWeekChange,
   onAddShift,
@@ -23,6 +25,8 @@ export function WeeklyGrid({
   showToast,
 }: WeeklyGridProps) {
   const [generatingSlots, setGeneratingSlots] = useState(false);
+  const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
+  const [tappedCellKey, setTappedCellKey] = useState<string | null>(null);
 
   async function handleGenerateSlots() {
     setGeneratingSlots(true);
@@ -72,6 +76,26 @@ export function WeeklyGrid({
     { key: 'morning' as const, label: 'בוקר', time: '12:00–19:00' },
     { key: 'evening' as const, label: 'ערב', time: '19:00–02:00' },
   ];
+  const platformColumns: Platform[] = ['telegram', 'onlyfans'];
+  const isTouchDevice =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0);
+
+  useEffect(() => {
+    if (!isTouchDevice || !tappedCellKey) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-coverage-cell="true"]')) {
+        setTappedCellKey(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isTouchDevice, tappedCellKey]);
 
   const shiftsByDateAndWindow: Record<
     string,
@@ -111,19 +135,92 @@ export function WeeklyGrid({
     return platform === 'telegram' ? 'טלגרם' : 'אונליפאנס';
   }
 
-  function getShiftAssignments(shift: ShiftWithChatter): Pick<ShiftAssignment, 'model' | 'platform'>[] {
+  function getShiftAssignments(shift: ShiftWithChatter): {
+    model_id: string | null;
+    model: string;
+    platform: Platform;
+  }[] {
     if (shift.shift_assignments && shift.shift_assignments.length > 0) {
       return shift.shift_assignments.map((assignment) => ({
+        model_id: assignment.model_id,
         model: assignment.model,
         platform: assignment.platform,
       }));
     }
 
     if (shift.model && shift.platform) {
-      return [{ model: shift.model, platform: shift.platform }];
+      return [{ model_id: shift.model_id, model: shift.model, platform: shift.platform }];
     }
 
     return [];
+  }
+
+  const modelIdByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const model of models) {
+      map.set(model.name.trim().toLowerCase(), model.id);
+    }
+    return map;
+  }, [models]);
+
+  function makeCoverageKey(modelId: string, platform: Platform) {
+    return `${modelId}|${platform}`;
+  }
+
+  function getCellKey(date: string, windowKey: 'morning' | 'evening') {
+    return `${date}|${windowKey}`;
+  }
+
+  function getCoveredAssignments(cellShifts: ShiftWithChatter[]) {
+    const covered = new Set<string>();
+
+    for (const shift of cellShifts) {
+      for (const assignment of getShiftAssignments(shift)) {
+        const resolvedModelId =
+          assignment.model_id ?? modelIdByName.get(assignment.model.trim().toLowerCase()) ?? null;
+        if (!resolvedModelId) continue;
+        covered.add(makeCoverageKey(resolvedModelId, assignment.platform));
+      }
+    }
+
+    return covered;
+  }
+
+  function getCellCoverage(cellShifts: ShiftWithChatter[]) {
+    const coveredAssignments = getCoveredAssignments(cellShifts);
+    const total = models.length * platformColumns.length;
+    let filled = 0;
+
+    for (const model of models) {
+      for (const platform of platformColumns) {
+        if (coveredAssignments.has(makeCoverageKey(model.id, platform))) {
+          filled += 1;
+        }
+      }
+    }
+
+    return {
+      coveredAssignments,
+      filled,
+      total,
+    };
+  }
+
+  function handleCellClick(date: string, windowKey: 'morning' | 'evening') {
+    const cellKey = getCellKey(date, windowKey);
+
+    if (isTouchDevice) {
+      if (tappedCellKey === cellKey) {
+        setTappedCellKey(null);
+        onAddShift(date, windowKey);
+        return;
+      }
+
+      setTappedCellKey(cellKey);
+      return;
+    }
+
+    onAddShift(date, windowKey);
   }
 
   // Determine if a date is today
@@ -219,18 +316,31 @@ export function WeeklyGrid({
                 <p className="text-sm font-bold text-white">{window.label}</p>
                 <p className="text-xs text-gray-400 mt-1">{window.time}</p>
               </div>
-              {weekDates.map((date) => (
-                <div
-                  key={`${window.key}-${date}`}
-                  className={cn(
-                    'min-h-[170px] rounded-lg p-2 space-y-2 cursor-pointer transition-colors group border',
-                    isToday(date)
-                      ? 'bg-blue-950/20 border-blue-900/60'
-                      : 'bg-gray-800/30 border-gray-800 hover:bg-gray-800/60'
-                  )}
-                  onClick={() => onAddShift(date, window.key)}
-                >
-                  {shiftsByDateAndWindow[date][window.key].map((shift) => {
+              {weekDates.map((date) => {
+                const cellShifts = shiftsByDateAndWindow[date][window.key];
+                const cellKey = getCellKey(date, window.key);
+                const coverage = getCellCoverage(cellShifts);
+                const isTooltipVisible = (isTouchDevice ? tappedCellKey : hoveredCellKey) === cellKey;
+
+                return (
+                  <div
+                    key={`${window.key}-${date}`}
+                    data-coverage-cell="true"
+                    className={cn(
+                      'relative min-h-[170px] rounded-lg p-2 space-y-2 cursor-pointer transition-colors group border',
+                      isToday(date)
+                        ? 'bg-blue-950/20 border-blue-900/60'
+                        : 'bg-gray-800/30 border-gray-800 hover:bg-gray-800/60'
+                    )}
+                    onMouseEnter={() => {
+                      if (!isTouchDevice) setHoveredCellKey(cellKey);
+                    }}
+                    onMouseLeave={() => {
+                      if (!isTouchDevice) setHoveredCellKey((prev) => (prev === cellKey ? null : prev));
+                    }}
+                    onClick={() => handleCellClick(date, window.key)}
+                  >
+                    {cellShifts.map((shift) => {
                     const assignments = getShiftAssignments(shift);
                     const groupedAssignments = new Map<Platform, string[]>();
                     for (const assignment of assignments) {
@@ -283,11 +393,51 @@ export function WeeklyGrid({
                     );
                   })}
 
+                    {isTooltipVisible && (
+                      <div className="pointer-events-none absolute z-30 right-full mr-2 top-1/2 -translate-y-1/2 w-56 max-w-[80vw] rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl xl:w-64 max-xl:right-0 max-xl:mr-0 max-xl:top-full max-xl:mt-2 max-xl:translate-y-0">
+                        <div className="grid grid-cols-3 bg-gray-950/70 px-2 py-1.5 text-[11px] text-gray-400 rounded-md">
+                          <span>מודל</span>
+                          <span className="text-center">טלגרם</span>
+                          <span className="text-center">אונליפאנס</span>
+                        </div>
+                        <div className="mt-1 max-h-52 overflow-y-auto">
+                          {models.map((model) => (
+                            <div
+                              key={`${cellKey}-${model.id}`}
+                              className="grid grid-cols-3 items-center border-t border-gray-800 px-2 py-1.5 text-[11px]"
+                            >
+                              <span className="truncate text-gray-100">{model.name}</span>
+                              {platformColumns.map((platform) => {
+                                const filled = coverage.coveredAssignments.has(
+                                  makeCoverageKey(model.id, platform)
+                                );
+                                return (
+                                  <span
+                                    key={`${model.id}-${platform}`}
+                                    className={cn(
+                                      'text-center text-sm font-semibold',
+                                      filled ? 'text-green-400' : 'text-red-400'
+                                    )}
+                                  >
+                                    {filled ? '✓' : '✕'}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-gray-300 border-t border-gray-800 pt-2">
+                          {coverage.filled}/{coverage.total} שיבוצים מלאים
+                        </p>
+                      </div>
+                    )}
+
                   <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity py-1">
                     <Plus size={14} className="text-gray-500" />
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

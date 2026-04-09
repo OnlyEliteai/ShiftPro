@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Trash2, UserCheck, UserX, Plus, Check } from 'lucide-react';
+import { Copy, Trash2, Plus, Check } from 'lucide-react';
 import type { Chatter } from '../../lib/types';
 import { LABELS, cn } from '../../lib/utils';
 import { useToast } from '../../hooks/useToast';
@@ -7,16 +7,16 @@ import { ToastContainer } from '../shared/ToastContainer';
 
 interface ChatterManagerProps {
   chatters: Chatter[];
+  lastClockInByChatter: Record<string, string>;
   onAdd: (name: string, phone: string) => void;
   onDelete: (id: string) => void;
-  onToggleActive: (id: string, active: boolean) => void;
 }
 
 export function ChatterManager({
   chatters,
+  lastClockInByChatter,
   onAdd,
   onDelete,
-  onToggleActive,
 }: ChatterManagerProps) {
   const { toasts, showToast, dismissToast } = useToast();
 
@@ -58,6 +58,14 @@ export function ChatterManager({
     onDelete(id);
     setConfirmDeleteId(null);
     showToast('info', LABELS.chatterDeleted);
+  }
+
+  function formatLastClockIn(timestamp: string) {
+    return new Date(timestamp).toLocaleString('he-IL', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      hour12: false,
+    });
   }
 
   const inputClass =
@@ -126,7 +134,7 @@ export function ChatterManager({
                 {LABELS.phone}
               </th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {LABELS.status}
+                {LABELS.lastClockIn}
               </th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 {LABELS.personalLink}
@@ -155,30 +163,15 @@ export function ChatterManager({
                   {/* Phone */}
                   <td className="px-4 py-3 text-gray-300 font-mono">{chatter.phone}</td>
 
-                  {/* Active toggle */}
+                  {/* Last clock-in */}
                   <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => onToggleActive(chatter.id, !chatter.active)}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
-                        chatter.active
-                          ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                      )}
-                      title={chatter.active ? LABELS.clickToDeactivate : LABELS.clickToActivate}
-                    >
-                      {chatter.active ? (
-                        <>
-                          <UserCheck size={13} />
-                          {LABELS.activeStatus}
-                        </>
-                      ) : (
-                        <>
-                          <UserX size={13} />
-                          {LABELS.inactiveStatus}
-                        </>
-                      )}
-                    </button>
+                    {lastClockInByChatter[chatter.id] ? (
+                      <span className="text-gray-200 text-xs">
+                        {formatLastClockIn(lastClockInByChatter[chatter.id])}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500 text-xs">{LABELS.neverClockedIn}</span>
+                    )}
                   </td>
 
                   {/* Copy link */}
