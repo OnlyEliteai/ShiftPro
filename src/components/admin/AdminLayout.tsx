@@ -329,7 +329,7 @@ export function AdminLayout({
             <textarea
               value={broadcastMessage}
               onChange={(event) => setBroadcastMessage(event.target.value)}
-              placeholder="כתוב הודעה לכל המשמרנים הפעילים..."
+              placeholder="כתוב הודעה לכל המשמרנים..."
               rows={5}
               className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               disabled={sendingBroadcast}

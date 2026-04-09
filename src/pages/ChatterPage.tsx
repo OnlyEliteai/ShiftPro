@@ -230,10 +230,7 @@ interface GroupedAvailableSlot {
   queue_slot_id: string | null;
 }
 
-interface OnlineChatter {
-  chatter_id: string;
-  name: string;
-}
+type SummaryModalSource = 'clock_out' | 'past' | 'debt';
 
 function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
   return shiftType === 'morning' ? 0 : 1;
@@ -343,6 +340,13 @@ function getSharedBoardStatusBadge(status: Shift['status']) {
   return { label: LABELS.scheduled, className: 'bg-gray-500/15 text-gray-300' };
 }
 
+function getPastShiftStatusBadge(status: Shift['status']) {
+  if (status === 'completed') {
+    return { label: 'הושלם', className: 'bg-emerald-500/15 text-emerald-300' };
+  }
+  return { label: 'פספוס', className: 'bg-red-500/15 text-red-300' };
+}
+
 export function ChatterPage() {
   const navigate = useNavigate();
   const { profile, chatter, loading, error, logout } = useChatterAuth();
@@ -355,15 +359,18 @@ export function ChatterPage() {
   const [loadingShifts, setLoadingShifts] = useState(false);
   const [loadingSharedBoard, setLoadingSharedBoard] = useState(false);
   const [actionShiftId, setActionShiftId] = useState<string | null>(null);
-  const [clockOutShift, setClockOutShift] = useState<Shift | null>(null);
+  const [summaryModalShift, setSummaryModalShift] = useState<Shift | null>(null);
+  const [summaryModalSource, setSummaryModalSource] = useState<SummaryModalSource>('clock_out');
   const [models, setModels] = useState<Model[]>([]);
   const [monthlyGoal, setMonthlyGoal] = useState<number | null>(null);
   const [monthlyEarned, setMonthlyEarned] = useState(0);
   const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
+  const [pastShifts, setPastShifts] = useState<Shift[]>([]);
+  const [loadingPastShifts, setLoadingPastShifts] = useState(false);
+  const [summaryShiftIds, setSummaryShiftIds] = useState<Set<string>>(new Set());
+  const [debtShift, setDebtShift] = useState<Shift | null>(null);
   const [availableSlots, setAvailableSlots] = useState<GroupedAvailableSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [onlineChatters, setOnlineChatters] = useState<OnlineChatter[]>([]);
-  const [loadingOnlineChatters, setLoadingOnlineChatters] = useState(false);
   const [slotActionId, setSlotActionId] = useState<string | null>(null);
   const [clockInCandidates, setClockInCandidates] = useState<Shift[] | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
@@ -391,6 +398,107 @@ export function ChatterPage() {
 
     return grouped;
   }, [sharedWeekShifts, weekDates]);
+
+  const openSummaryModal = useCallback((shift: Shift, source: SummaryModalSource) => {
+    setSummaryModalShift(shift);
+    setSummaryModalSource(source);
+  }, []);
+
+  const closeSummaryModal = useCallback(() => {
+    setSummaryModalShift(null);
+    setSummaryModalSource('clock_out');
+  }, []);
+
+  const fetchShiftById = useCallback(
+    async (shiftId: string) => {
+      if (!chatter) return null;
+
+      const { data, error: shiftError } = await supabase
+        .from('shifts')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
+        .eq('id', shiftId)
+        .eq('chatter_id', chatter.id)
+        .maybeSingle();
+
+      if (shiftError || !data) return null;
+      return data as Shift;
+    },
+    [chatter]
+  );
+
+  const fetchPastShiftsData = useCallback(async () => {
+    if (!chatter) return;
+    setLoadingPastShifts(true);
+
+    const [pastRes, summariesRes] = await Promise.all([
+      supabase
+        .from('shifts')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
+        .eq('chatter_id', chatter.id)
+        .in('status', ['completed', 'missed'])
+        .order('date', { ascending: false })
+        .order('start_time', { ascending: false })
+        .limit(10),
+      supabase
+        .from('daily_summaries')
+        .select('shift_id')
+        .eq('chatter_id', chatter.id),
+    ]);
+
+    if (pastRes.error || summariesRes.error) {
+      showToast('error', LABELS.noConnection);
+      setLoadingPastShifts(false);
+      return;
+    }
+
+    const filledShiftIds = new Set(
+      ((summariesRes.data ?? []) as Array<{ shift_id: string | null }>)
+        .map((summary) => summary.shift_id)
+        .filter((shiftId): shiftId is string => Boolean(shiftId))
+    );
+
+    setPastShifts((pastRes.data ?? []) as Shift[]);
+    setSummaryShiftIds(filledShiftIds);
+    setLoadingPastShifts(false);
+  }, [chatter, showToast]);
+
+  const fetchDebtShift = useCallback(async () => {
+    if (!chatter) return;
+
+    const { data: latestCompletedShift, error: latestShiftError } = await supabase
+      .from('shifts')
+      .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
+      .eq('chatter_id', chatter.id)
+      .eq('status', 'completed')
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestShiftError) {
+      showToast('error', LABELS.noConnection);
+      return;
+    }
+
+    if (!latestCompletedShift) {
+      setDebtShift(null);
+      return;
+    }
+
+    const { data: summaryRow, error: summaryError } = await supabase
+      .from('daily_summaries')
+      .select('shift_id')
+      .eq('chatter_id', chatter.id)
+      .eq('shift_id', latestCompletedShift.id)
+      .maybeSingle();
+
+    if (summaryError) {
+      showToast('error', LABELS.noConnection);
+      return;
+    }
+
+    setDebtShift(summaryRow ? null : (latestCompletedShift as Shift));
+  }, [chatter, showToast]);
 
   const fetchShiftData = useCallback(async () => {
     if (!chatter) return;
@@ -609,41 +717,6 @@ export function ChatterPage() {
     setLoadingSlots(false);
   }, [chatter, showToast]);
 
-  const fetchOnlineChatters = useCallback(async () => {
-    setLoadingOnlineChatters(true);
-    const today = getIsraelTodayDateKey();
-
-    const { data, error: onlineError } = await supabase
-      .from('shifts')
-      .select('chatter_id, chatters(name)')
-      .eq('date', today)
-      .eq('status', 'active');
-
-    if (onlineError) {
-      showToast('error', LABELS.noConnection);
-      setLoadingOnlineChatters(false);
-      return;
-    }
-
-    const unique = new Map<string, OnlineChatter>();
-    for (const row of (data ?? []) as Array<{
-      chatter_id: string;
-      chatters: { name?: string } | Array<{ name?: string }> | null;
-    }>) {
-      const chatterName = Array.isArray(row.chatters)
-        ? row.chatters[0]?.name
-        : row.chatters?.name;
-      if (!row.chatter_id || !chatterName) continue;
-      unique.set(row.chatter_id, { chatter_id: row.chatter_id, name: chatterName });
-    }
-
-    const sorted = Array.from(unique.values()).sort((a, b) =>
-      a.name.localeCompare(b.name, 'he-IL')
-    );
-    setOnlineChatters(sorted);
-    setLoadingOnlineChatters(false);
-  }, [showToast]);
-
   async function signUpToSlotInternal(slotGroup: GroupedAvailableSlot, chatterId: string) {
     const timeWindow = getSlotTimeWindow(slotGroup.shift_type);
     const { error: insertError } = await supabase.from('shifts').insert({
@@ -809,17 +882,27 @@ export function ChatterPage() {
     Promise.resolve().then(() => {
       if (active) {
         void fetchShiftData();
+        void fetchPastShiftsData();
+        void fetchDebtShift();
         void fetchSharedScheduleData();
         void fetchModels();
         void fetchMonthlyProgress();
         void fetchAvailableSlots();
-        void fetchOnlineChatters();
       }
     });
     return () => {
       active = false;
     };
-  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchModels, fetchMonthlyProgress, fetchAvailableSlots, fetchOnlineChatters]);
+  }, [
+    chatter,
+    fetchShiftData,
+    fetchPastShiftsData,
+    fetchDebtShift,
+    fetchSharedScheduleData,
+    fetchModels,
+    fetchMonthlyProgress,
+    fetchAvailableSlots,
+  ]);
 
   // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
   useEffect(() => {
@@ -832,6 +915,8 @@ export function ChatterPage() {
         { event: '*', schema: 'public', table: 'shifts', filter: `chatter_id=eq.${chatter.id}` },
         () => {
           void fetchShiftData();
+          void fetchPastShiftsData();
+          void fetchDebtShift();
           void fetchAvailableSlots();
         }
       )
@@ -840,7 +925,6 @@ export function ChatterPage() {
         { event: '*', schema: 'public', table: 'shifts' },
         () => {
           void fetchSharedScheduleData();
-          void fetchOnlineChatters();
         }
       )
       .on(
@@ -859,7 +943,11 @@ export function ChatterPage() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'daily_summaries', filter: `chatter_id=eq.${chatter.id}` },
-        () => { void fetchMonthlyProgress(); }
+        () => {
+          void fetchMonthlyProgress();
+          void fetchPastShiftsData();
+          void fetchDebtShift();
+        }
       )
       .on(
         'postgres_changes',
@@ -871,7 +959,15 @@ export function ChatterPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatter, fetchShiftData, fetchSharedScheduleData, fetchMonthlyProgress, fetchAvailableSlots, fetchOnlineChatters]);
+  }, [
+    chatter,
+    fetchShiftData,
+    fetchPastShiftsData,
+    fetchDebtShift,
+    fetchSharedScheduleData,
+    fetchMonthlyProgress,
+    fetchAvailableSlots,
+  ]);
 
   const handleLogout = () => {
     logout();
@@ -890,8 +986,28 @@ export function ChatterPage() {
         body: JSON.stringify({ token: chatter.token, shiftId: shift.id }),
       });
 
-      const payload = await response.json().catch(() => ({} as { error?: string; success?: boolean }));
+      const payload = await response.json().catch(
+        () =>
+          ({} as {
+            error?: string;
+            success?: boolean;
+            message?: string;
+            debt_shift_id?: string;
+          })
+      );
       if (!response.ok || payload.success === false) {
+        if (payload.error === 'SUMMARY_DEBT') {
+          if (payload.debt_shift_id) {
+            const latestDebtShift = await fetchShiftById(payload.debt_shift_id);
+            if (latestDebtShift) {
+              setDebtShift(latestDebtShift);
+              return;
+            }
+          }
+          await fetchDebtShift();
+          return;
+        }
+
         showToast('error', mapClockInErrorMessage(response.status, payload.error));
         return;
       }
@@ -907,6 +1023,11 @@ export function ChatterPage() {
 
   async function handleSmartClockIn() {
     if (!chatter) return;
+    if (debtShift) {
+      openSummaryModal(debtShift, 'debt');
+      return;
+    }
+
     const today = getIsraelTodayDateKey();
     const nowMinutes = getCurrentIsraelWallClockMinutes();
 
@@ -1002,6 +1123,30 @@ export function ChatterPage() {
     setActionShiftId(null);
     await fetchShiftData();
   }
+
+  const showSummaryModalToast = useCallback(
+    (type: 'success' | 'error' | 'warning' | 'info', message: string) => {
+      const isRetroactive = summaryModalSource === 'past' || summaryModalSource === 'debt';
+      if (isRetroactive && type === 'error' && message === 'שגיאה ביציאה מהמשמרת') {
+        closeSummaryModal();
+        showToast('success', 'הסיכום נשלח בהצלחה!');
+        void fetchMonthlyProgress();
+        void fetchPastShiftsData();
+        void fetchDebtShift();
+        return;
+      }
+
+      showToast(type, message);
+    },
+    [
+      summaryModalSource,
+      closeSummaryModal,
+      showToast,
+      fetchMonthlyProgress,
+      fetchPastShiftsData,
+      fetchDebtShift,
+    ]
+  );
 
   const weeklyStats = useMemo(() => {
     const total = weeklyShifts.length;
@@ -1102,29 +1247,74 @@ export function ChatterPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-emerald-700/30 bg-gray-900 p-4">
-            <h2 className="text-base font-bold text-white mb-3">אונליין עכשיו</h2>
-            {loadingOnlineChatters ? (
+          {debtShift && (
+            <section className="rounded-2xl border border-red-600/50 bg-red-900/20 p-4 space-y-3">
+              <p className="text-sm font-semibold text-red-200">
+                ⚠️ {LABELS.summaryDebtBanner} {formatHebrewShortDate(debtShift.date)}
+              </p>
+              <button
+                onClick={() => openSummaryModal(debtShift, 'debt')}
+                className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold"
+              >
+                {LABELS.fillSummaryNow}
+              </button>
+            </section>
+          )}
+
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+            <h2 className="text-base font-bold text-white mb-3">{LABELS.pastShifts}</h2>
+            {loadingPastShifts ? (
               <LoadingSpinner />
-            ) : onlineChatters.length === 0 ? (
-              <p className="text-sm text-gray-400">אף אחד לא אונליין כרגע</p>
+            ) : pastShifts.length === 0 ? (
+              <p className="text-sm text-gray-400">{LABELS.noPastShifts}</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {onlineChatters.map((onlineChatter) => (
-                  <div
-                    key={onlineChatter.chatter_id}
-                    className="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800/70 px-3 py-1.5"
-                  >
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                    </span>
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-300">
-                      {(onlineChatter.name.trim().charAt(0) || 'צ').toUpperCase()}
-                    </span>
-                    <span className="text-xs text-gray-100">{onlineChatter.name}</span>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                {pastShifts.map((shift) => {
+                  const statusBadge = getPastShiftStatusBadge(shift.status);
+                  const hasSummary = summaryShiftIds.has(shift.id);
+                  return (
+                    <article
+                      key={shift.id}
+                      className="rounded-xl border border-gray-800 bg-gray-800/40 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{formatHebrewDate(shift.date)}</p>
+                          <p className="text-xs text-gray-400 font-mono">
+                            {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
+                          </p>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge.className}`}>
+                          {statusBadge.label}
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-gray-300 flex items-center gap-2 flex-wrap">
+                        <span>סוג: {getShiftTypeLabel(shift.start_time)}</span>
+                        {!formatAssignmentsSummary(shift) ? (
+                          <span className="text-gray-500">טרם שובץ</span>
+                        ) : (
+                          <span>המודלים שלך: {formatAssignmentsSummary(shift)}</span>
+                        )}
+                      </div>
+
+                      <div className="mt-2">
+                        {hasSummary ? (
+                          <span className="text-xs font-medium text-emerald-300">
+                            {LABELS.summarySent}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => openSummaryModal(shift, 'past')}
+                            className="min-h-[34px] rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-3"
+                          >
+                            {LABELS.fillSummary}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1180,7 +1370,7 @@ export function ChatterPage() {
                 </p>
               </div>
               <button
-                onClick={() => setClockOutShift(activeShift)}
+                onClick={() => openSummaryModal(activeShift, 'clock_out')}
                 className="w-full min-h-[48px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold"
               >
                 סיום משמרת
@@ -1215,7 +1405,7 @@ export function ChatterPage() {
                 </div>
                 <button
                   onClick={handleSmartClockIn}
-                  disabled={Boolean(actionShiftId) || Boolean(activeShift)}
+                  disabled={Boolean(actionShiftId) || Boolean(activeShift) || Boolean(debtShift)}
                   className="w-full min-h-[48px] rounded-xl bg-[#1D9E75] hover:bg-[#188561] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold"
                 >
                   {actionShiftId ? LABELS.connecting : LABELS.clockIn}
@@ -1566,17 +1756,19 @@ export function ChatterPage() {
         </div>
       </ChatterLayout>
 
-      {clockOutShift && chatter && (
+      {summaryModalShift && chatter && (
         <DailySummaryModal
-          shift={clockOutShift}
+          shift={summaryModalShift}
           chatterId={chatter.id}
           models={models}
-          onClose={() => setClockOutShift(null)}
+          onClose={closeSummaryModal}
           onSubmitted={async () => {
             await fetchShiftData();
             await fetchMonthlyProgress();
+            await fetchPastShiftsData();
+            await fetchDebtShift();
           }}
-          showToast={showToast}
+          showToast={showSummaryModalToast}
         />
       )}
       {/* Smart clock-in: shift picker when multiple candidates */}
