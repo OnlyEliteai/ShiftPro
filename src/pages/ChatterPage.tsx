@@ -230,6 +230,16 @@ interface GroupedAvailableSlot {
   queue_slot_id: string | null;
 }
 
+interface ShiftSlotAvailabilityRow {
+  slot_date: string;
+  slot_shift_type: string;
+  total_models: number;
+  total_needed: number;
+  total_filled: number;
+  is_full: boolean;
+  occupied: number;
+}
+
 type SummaryModalSource = 'clock_out' | 'past' | 'debt';
 
 function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
@@ -633,7 +643,25 @@ export function ChatterPage() {
     setLoadingSlots(true);
     const today = getIsraelTodayDateKey();
 
-    const { data, error: slotsError } = await supabase
+    const { data: availabilityData, error: availabilityError } = await supabase.rpc(
+      'get_shift_slot_availability',
+      { p_from_date: today }
+    );
+
+    if (availabilityError) {
+      showToast('error', LABELS.noConnection);
+      setLoadingSlots(false);
+      return;
+    }
+
+    const availabilityRows = (availabilityData ?? []) as ShiftSlotAvailabilityRow[];
+    if (availabilityRows.length === 0) {
+      setAvailableSlots([]);
+      setLoadingSlots(false);
+      return;
+    }
+
+    const { data: slotData, error: slotsError } = await supabase
       .from('shift_slots')
       .select('*')
       .gte('date', today)
@@ -648,66 +676,65 @@ export function ChatterPage() {
       return;
     }
 
-    const slotRows = (data ?? []) as ShiftSlot[];
-    if (slotRows.length === 0) {
-      setAvailableSlots([]);
-      setLoadingSlots(false);
-      return;
+    const slotRows = (slotData ?? []) as ShiftSlot[];
+    const slotLookup = new Map<
+      string,
+      { signup_slot_id: string | null; queue_slot_id: string | null }
+    >();
+    for (const slot of slotRows) {
+      const key = getSlotKey(slot.date, slot.shift_type);
+      const current = slotLookup.get(key) ?? { signup_slot_id: null, queue_slot_id: null };
+
+      if (!current.queue_slot_id) {
+        current.queue_slot_id = slot.id;
+      }
+      if (slot.status === 'open' && !current.signup_slot_id) {
+        current.signup_slot_id = slot.id;
+      }
+
+      slotLookup.set(key, current);
     }
 
-    const seen = new Set<string>();
-    const uniqueSlotRows = slotRows.filter((slot) => {
-      const key = `${slot.date}-${slot.shift_type}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    const { data: occupancyData, error: occupancyError } = await supabase
+    const { data: chatterShiftData, error: chatterShiftError } = await supabase
       .from('shifts')
-      .select('chatter_id, date, start_time, status')
+      .select('date, start_time')
+      .eq('chatter_id', chatter.id)
       .gte('date', today)
       .in('status', ['pending', 'scheduled', 'active']);
 
-    if (occupancyError) {
+    if (chatterShiftError) {
       showToast('error', LABELS.noConnection);
       setLoadingSlots(false);
       return;
     }
 
-    const grouped = new Map<string, GroupedAvailableSlot>();
-    for (const slot of uniqueSlotRows) {
-      const key = getSlotKey(slot.date, slot.shift_type);
-      grouped.set(key, {
-        key,
-        date: slot.date,
-        shift_type: slot.shift_type,
-        total_capacity: Math.max(1, Number(slot.max_chatters ?? 1)),
-        occupied: 0,
-        is_full: false,
-        chatter_signed_up: false,
-        signup_slot_id: slot.status === 'open' ? slot.id : null,
-        queue_slot_id: slot.id,
-      });
-    }
-
-    for (const shift of (occupancyData ?? []) as Pick<Shift, 'chatter_id' | 'date' | 'start_time'>[]) {
+    const chatterSignedUpBySlot = new Set<string>();
+    for (const shift of (chatterShiftData ?? []) as Pick<Shift, 'date' | 'start_time'>[]) {
       const shiftType = getShiftTypeByStartTime(shift.start_time);
-      const key = getSlotKey(shift.date, shiftType);
-      const target = grouped.get(key);
-      if (!target) continue;
-
-      target.occupied += 1;
-      if (shift.chatter_id === chatter.id) {
-        target.chatter_signed_up = true;
-      }
+      chatterSignedUpBySlot.add(getSlotKey(shift.date, shiftType));
     }
 
-    const groupedSlots = Array.from(grouped.values())
-      .map((slotGroup) => ({
-        ...slotGroup,
-        is_full: slotGroup.occupied >= slotGroup.total_capacity,
-      }))
+    const groupedSlots = availabilityRows
+      .map((row) => {
+        if (row.slot_shift_type !== 'morning' && row.slot_shift_type !== 'evening') return null;
+        const shiftType = row.slot_shift_type as ShiftSlot['shift_type'];
+        const key = getSlotKey(row.slot_date, shiftType);
+        const slotIds = slotLookup.get(key);
+
+        return {
+          key,
+          date: row.slot_date,
+          shift_type: shiftType,
+          total_capacity: Math.max(0, Number(row.total_needed ?? 0)),
+          occupied: Math.max(0, Number(row.occupied ?? 0)),
+          is_full: Boolean(row.is_full),
+          chatter_signed_up: chatterSignedUpBySlot.has(key),
+          signup_slot_id: slotIds?.signup_slot_id ?? null,
+          queue_slot_id: slotIds?.queue_slot_id ?? null,
+        } satisfies GroupedAvailableSlot;
+      })
+      .filter((slot): slot is GroupedAvailableSlot => Boolean(slot))
+
       .sort(
         (a, b) =>
           a.date.localeCompare(b.date) || getShiftTypeOrder(a.shift_type) - getShiftTypeOrder(b.shift_type)
