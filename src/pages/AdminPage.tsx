@@ -19,7 +19,7 @@ import { AdminExportPanel } from '../components/admin/AdminExportPanel';
 const Analytics = lazy(() => import('../components/admin/Analytics').then(m => ({ default: m.Analytics })));
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
-import type { Shift, ShiftWithChatter } from '../lib/types';
+import type { Platform, Shift, ShiftWithChatter } from '../lib/types';
 import { LABELS, getWeekDates } from '../lib/utils';
 import { SUPABASE_URL, supabase } from '../lib/supabase';
 
@@ -33,7 +33,10 @@ interface ShiftFormData {
   end_time: string;
   model: string;
   model_id: string;
-  platform: 'telegram' | 'onlyfans' | null;
+  platform: Platform | null;
+  selected_model_ids: string[];
+  selected_platforms: Platform[];
+  combinations: Array<{ model: string; model_id: string; platform: Platform }>;
   status: Shift['status'];
 }
 
@@ -191,33 +194,184 @@ export function AdminPage() {
 
   const handleSaveShift = useCallback(
     async (formData: ShiftFormData) => {
-      const payload = {
+      const combinations =
+        formData.combinations.length > 0
+          ? formData.combinations
+          : formData.platform && formData.model_id
+            ? [
+                {
+                  model: formData.model,
+                  model_id: formData.model_id,
+                  platform: formData.platform,
+                },
+              ]
+            : [];
+
+      if (combinations.length === 0) {
+        showToast('error', 'יש לבחור לפחות מודל ופלטפורמה אחד');
+        return;
+      }
+
+      const updatedAt = new Date().toISOString();
+      const makeSelectionKey = (modelId: string, platform: Platform) => `${modelId}|${platform}`;
+      const selectedKeys = new Set(
+        combinations.map((combination) =>
+          makeSelectionKey(combination.model_id, combination.platform)
+        )
+      );
+
+      if (combinations.length === 1) {
+        const [singleCombination] = combinations;
+        const payload = {
+          chatter_id: formData.chatter_id,
+          date: formData.date,
+          start_time: formData.start_time,
+          end_time: formData.end_time,
+          model: singleCombination.model,
+          model_id: singleCombination.model_id,
+          platform: singleCombination.platform,
+          status: formData.status,
+          updated_at: updatedAt,
+        };
+
+        if (editingShift) {
+          const { error } = await updateShift(editingShift.id, payload);
+          if (error) {
+            showToast('error', error);
+            return;
+          }
+
+          const { data: extraRows, error: extraRowsError } = await supabase
+            .from('shifts')
+            .select('id')
+            .eq('chatter_id', formData.chatter_id)
+            .eq('date', formData.date)
+            .eq('start_time', formData.start_time)
+            .eq('end_time', formData.end_time)
+            .neq('id', editingShift.id);
+
+          if (extraRowsError) {
+            showToast('error', extraRowsError.message);
+            return;
+          }
+
+          if (extraRows && extraRows.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('shifts')
+              .delete()
+              .in('id', extraRows.map((row) => row.id));
+
+            if (deleteError) {
+              showToast('error', deleteError.message);
+              return;
+            }
+          }
+
+          showToast('success', LABELS.shiftUpdated);
+          closeEditor();
+          return;
+        }
+
+        const { error } = await createShift(payload);
+        if (error) {
+          showToast('error', error);
+          return;
+        }
+
+        showToast('success', LABELS.shiftAdded);
+        closeEditor();
+        return;
+      }
+
+      const rowsToUpsert = combinations.map((combination) => ({
         chatter_id: formData.chatter_id,
         date: formData.date,
         start_time: formData.start_time,
         end_time: formData.end_time,
-        model: formData.model,
-        model_id: formData.model_id,
-        platform: formData.platform,
+        model: combination.model,
+        model_id: combination.model_id,
+        platform: combination.platform,
         status: formData.status,
-      };
-      if (editingShift) {
-        const { error } = await updateShift(editingShift.id, payload);
-        if (error) showToast('error', error);
-        else {
-          showToast('success', LABELS.shiftUpdated);
-          closeEditor();
-        }
-      } else {
-        const { error } = await createShift(payload);
-        if (error) showToast('error', error);
-        else {
-          showToast('success', LABELS.shiftAdded);
-          closeEditor();
+        updated_at: updatedAt,
+      }));
+
+      const { error: upsertError } = await supabase
+        .from('shifts')
+        .upsert(rowsToUpsert, {
+          onConflict: 'chatter_id,date,start_time,end_time,model_id,platform',
+        });
+
+      if (upsertError) {
+        showToast('error', upsertError.message);
+        return;
+      }
+
+      const { data: windowRows, error: windowRowsError } = await supabase
+        .from('shifts')
+        .select('id, model_id, model, platform')
+        .eq('chatter_id', formData.chatter_id)
+        .eq('date', formData.date)
+        .eq('start_time', formData.start_time)
+        .eq('end_time', formData.end_time);
+
+      if (windowRowsError) {
+        showToast('error', windowRowsError.message);
+        return;
+      }
+
+      const modelIdByName = new Map(
+        models.map((model) => [model.name.trim().toLowerCase(), model.id])
+      );
+
+      const rowsToDelete = (windowRows ?? [])
+        .filter((row) => {
+          const resolvedModelId =
+            row.model_id ??
+            (row.model ? modelIdByName.get(row.model.trim().toLowerCase()) ?? null : null);
+
+          if (!resolvedModelId || !row.platform) return true;
+
+          return !selectedKeys.has(makeSelectionKey(resolvedModelId, row.platform as Platform));
+        })
+        .map((row) => row.id);
+
+      if (rowsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('shifts')
+          .delete()
+          .in('id', rowsToDelete);
+
+        if (deleteError) {
+          showToast('error', deleteError.message);
+          return;
         }
       }
+
+      if (editingShift) {
+        const movedWindow =
+          editingShift.chatter_id !== formData.chatter_id ||
+          editingShift.date !== formData.date ||
+          editingShift.start_time !== formData.start_time ||
+          editingShift.end_time !== formData.end_time;
+
+        if (movedWindow) {
+          const { error: cleanupError } = await supabase
+            .from('shifts')
+            .delete()
+            .eq('id', editingShift.id);
+
+          if (cleanupError) {
+            showToast('error', cleanupError.message);
+            return;
+          }
+        }
+      }
+
+      await fetchShifts();
+      showToast('success', editingShift ? LABELS.shiftUpdated : LABELS.shiftAdded);
+      closeEditor();
     },
-    [editingShift, createShift, updateShift, showToast, closeEditor]
+    [editingShift, createShift, updateShift, showToast, closeEditor, models, fetchShifts]
   );
 
   const handleDeleteShift = useCallback(async () => {

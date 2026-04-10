@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import type { Chatter, Model, Shift } from '../../lib/types';
+import type { Chatter, Model, Platform, Shift } from '../../lib/types';
 import { LABELS } from '../../lib/utils';
+
+interface ShiftCombination {
+  model_id: string;
+  model: string;
+  platform: Platform;
+}
 
 interface ShiftFormData {
   chatter_id: string;
@@ -11,7 +17,10 @@ interface ShiftFormData {
   end_time: string;
   model: string;
   model_id: string;
-  platform: 'telegram' | 'onlyfans' | null;
+  platform: Platform | null;
+  selected_model_ids: string[];
+  selected_platforms: Platform[];
+  combinations: ShiftCombination[];
   status: Shift['status'];
 }
 
@@ -63,6 +72,46 @@ export function ShiftEditor({
       ? { start_time: '12:00', end_time: '19:00' }
       : { start_time: '19:00', end_time: '02:00' };
 
+  const existingAssignments = useMemo<ShiftCombination[]>(() => {
+    if (!shift) return [];
+
+    if (shift.shift_assignments && shift.shift_assignments.length > 0) {
+      return shift.shift_assignments
+        .filter((assignment) => assignment.model_id)
+        .map((assignment) => ({
+          model_id: assignment.model_id as string,
+          model: assignment.model,
+          platform: assignment.platform,
+        }));
+    }
+
+    if (shift.model && shift.platform) {
+      const resolvedModelId =
+        shift.model_id ?? models.find((model) => model.name === shift.model)?.id ?? '';
+      if (!resolvedModelId) return [];
+
+      return [
+        {
+          model_id: resolvedModelId,
+          model: shift.model,
+          platform: shift.platform,
+        },
+      ];
+    }
+
+    return [];
+  }, [shift, models]);
+
+  const initialSelectedModelIds = useMemo(
+    () => Array.from(new Set(existingAssignments.map((assignment) => assignment.model_id))),
+    [existingAssignments]
+  );
+
+  const initialSelectedPlatforms = useMemo(
+    () => Array.from(new Set(existingAssignments.map((assignment) => assignment.platform))),
+    [existingAssignments]
+  );
+
   const [form, setForm] = useState<ShiftFormData>({
     chatter_id: shift?.chatter_id ?? (chatters[0]?.id ?? ''),
     date: shift?.date ?? date ?? availableDates[0] ?? new Date().toISOString().split('T')[0],
@@ -74,9 +123,14 @@ export function ShiftEditor({
       shift?.model_id ??
       (shift?.model ? models.find((m) => m.name === shift.model)?.id ?? '' : ''),
     platform: shift?.platform ?? null,
+    selected_model_ids: initialSelectedModelIds,
+    selected_platforms: initialSelectedPlatforms,
+    combinations: existingAssignments,
     status: shift?.status ?? 'scheduled',
   });
 
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>(initialSelectedModelIds);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(initialSelectedPlatforms);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -91,17 +145,40 @@ export function ShiftEditor({
       return;
     }
 
-    if (name === 'model_id') {
-      const selectedModel = models.find((m) => m.id === value);
-      setForm((prev) => ({ ...prev, model_id: value, model: selectedModel?.name ?? '' }));
-      return;
-    }
-
-    setForm((prev) => ({
-      ...prev,
-      [name]: name === 'platform' && value === '' ? null : value,
-    }));
+    setForm((prev) => ({ ...prev, [name]: value }));
   }
+
+  function togglePlatform(platform: Platform) {
+    setSelectedPlatforms((prev) =>
+      prev.includes(platform) ? prev.filter((item) => item !== platform) : [...prev, platform]
+    );
+  }
+
+  function toggleModel(modelId: string) {
+    setSelectedModelIds((prev) =>
+      prev.includes(modelId) ? prev.filter((item) => item !== modelId) : [...prev, modelId]
+    );
+  }
+
+  const selectedModels = useMemo(
+    () =>
+      selectedModelIds
+        .map((modelId) => models.find((model) => model.id === modelId))
+        .filter((model): model is Model => Boolean(model)),
+    [selectedModelIds, models]
+  );
+
+  const selectedCombinations = useMemo<ShiftCombination[]>(
+    () =>
+      selectedModels.flatMap((model) =>
+        selectedPlatforms.map((platform) => ({
+          model_id: model.id,
+          model: model.name,
+          platform,
+        }))
+      ),
+    [selectedModels, selectedPlatforms]
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,13 +189,18 @@ export function ShiftEditor({
       return;
     }
 
-    if (!form.platform) {
+    if (selectedPlatforms.length === 0) {
       setValidationError('יש לבחור פלטפורמה');
       return;
     }
 
-    if (!form.model_id && hasModels) {
+    if (selectedModelIds.length === 0 && hasModels) {
       setValidationError('יש לבחור מודל');
+      return;
+    }
+
+    if (selectedCombinations.length === 0) {
+      setValidationError('יש לבחור לפחות מודל ופלטפורמה אחד');
       return;
     }
 
@@ -128,12 +210,24 @@ export function ShiftEditor({
         form.shift_type === 'morning'
           ? existing.start_time.startsWith('12:00')
           : existing.start_time.startsWith('19:00');
-      return (
-        existing.chatter_id === form.chatter_id &&
-        existing.date === form.date &&
-        matchesWindow &&
-        existing.model_id === form.model_id &&
-        existing.platform === form.platform
+      if (
+        existing.chatter_id !== form.chatter_id ||
+        existing.date !== form.date ||
+        !matchesWindow ||
+        !existing.platform
+      ) {
+        return false;
+      }
+
+      const resolvedModelId =
+        existing.model_id ??
+        (existing.model ? models.find((model) => model.name === existing.model)?.id ?? null : null);
+      if (!resolvedModelId) return false;
+
+      return selectedCombinations.some(
+        (combination) =>
+          combination.model_id === resolvedModelId &&
+          combination.platform === existing.platform
       );
     });
 
@@ -142,16 +236,16 @@ export function ShiftEditor({
       return;
     }
 
-    const selectedModel = models.find((m) => m.id === form.model_id);
-    if (!selectedModel) {
-      setValidationError('יש לבחור מודל');
-      return;
-    }
+    const primaryCombination = selectedCombinations[0];
 
     onSave({
       ...form,
-      model: selectedModel.name,
-      model_id: selectedModel.id,
+      model: primaryCombination.model,
+      model_id: primaryCombination.model_id,
+      platform: primaryCombination.platform,
+      selected_model_ids: [...selectedModelIds],
+      selected_platforms: [...selectedPlatforms],
+      combinations: selectedCombinations,
       status: isEditing ? form.status : 'scheduled',
     });
   }
@@ -292,21 +386,17 @@ export function ShiftEditor({
             <div className="grid grid-cols-2 gap-2">
               <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
                 <input
-                  type="radio"
-                  name="platform"
-                  value="telegram"
-                  checked={form.platform === 'telegram'}
-                  onChange={handleChange}
+                  type="checkbox"
+                  checked={selectedPlatforms.includes('telegram')}
+                  onChange={() => togglePlatform('telegram')}
                 />
                 <span>טלגרם</span>
               </label>
               <label className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white">
                 <input
-                  type="radio"
-                  name="platform"
-                  value="onlyfans"
-                  checked={form.platform === 'onlyfans'}
-                  onChange={handleChange}
+                  type="checkbox"
+                  checked={selectedPlatforms.includes('onlyfans')}
+                  onChange={() => togglePlatform('onlyfans')}
                 />
                 <span>אונלי</span>
               </label>
@@ -315,28 +405,61 @@ export function ShiftEditor({
 
           {/* Model */}
           <div>
-            <label htmlFor="model_id" className={labelClass}>
+            <label className={labelClass}>
               {LABELS.model}
             </label>
             {hasModels ? (
-              <select
-                id="model_id"
-                name="model_id"
-                value={form.model_id}
-                onChange={handleChange}
-                className={inputClass}
-                required
-              >
-                <option value="">{LABELS.selectModel}</option>
-                {activeModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                {activeModels.map((model) => (
+                  <label
+                    key={model.id}
+                    className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedModelIds.includes(model.id)}
+                      onChange={() => toggleModel(model.id)}
+                    />
+                    <span>{model.name}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
             ) : (
               <p className="text-sm text-yellow-400 py-2">{LABELS.addModelFirst}</p>
             )}
+          </div>
+
+          {/* Selection Preview */}
+          <div className="space-y-2">
+            <p className={labelClass}>שיבוצים נבחרים</p>
+            <div className="flex flex-wrap gap-2">
+              {selectedModels.map((model) => (
+                <span
+                  key={`model-${model.id}`}
+                  className="px-2 py-1 rounded-full text-xs bg-blue-500/20 text-blue-300"
+                >
+                  {model.name}
+                </span>
+              ))}
+              {selectedPlatforms.map((platform) => (
+                <span
+                  key={`platform-${platform}`}
+                  className="px-2 py-1 rounded-full text-xs bg-purple-500/20 text-purple-300"
+                >
+                  {platform === 'telegram' ? 'טלגרם' : 'אונלי'}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {selectedCombinations.map((combination) => (
+                <span
+                  key={`${combination.model_id}|${combination.platform}`}
+                  className="px-2 py-1 rounded-full text-xs bg-green-500/20 text-green-300"
+                >
+                  {combination.model} × {combination.platform === 'telegram' ? 'טלגרם' : 'אונלי'}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Status — only show when editing */}
