@@ -377,58 +377,105 @@ export function WeeklyGrid({
                       handleCellClick(date, window.key, event.currentTarget as HTMLDivElement)
                     }
                   >
-                    {cellShifts.map((shift) => {
-                    const assignments = getShiftAssignments(shift);
-                    const groupedAssignments = new Map<Platform, string[]>();
-                    for (const assignment of assignments) {
-                      const modelsForPlatform = groupedAssignments.get(assignment.platform) ?? [];
-                      modelsForPlatform.push(assignment.model);
-                      groupedAssignments.set(assignment.platform, modelsForPlatform);
-                    }
+                    {(() => {
+                      const chatterGroups = new Map<string, ShiftWithChatter[]>();
+                      for (const shift of cellShifts) {
+                        const group = chatterGroups.get(shift.chatter_id) ?? [];
+                        group.push(shift);
+                        chatterGroups.set(shift.chatter_id, group);
+                      }
 
-                    return (
-                      <div
-                        key={shift.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditShift(shift);
-                        }}
-                        className={cn(
-                          'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
-                          shift.status === 'active'
-                            ? 'bg-green-900/35'
-                            : shift.status === 'completed'
-                              ? 'bg-blue-900/30'
-                              : shift.status === 'missed'
-                                ? 'bg-red-900/35'
-                                : shift.status === 'scheduled'
-                                  ? 'bg-gray-700/50'
-                                  : shift.status === 'pending'
-                                    ? 'bg-yellow-900/30'
-                                    : 'bg-red-950/30'
-                        )}
-                      >
-                        <p className="text-xs font-semibold text-white truncate mb-1">
-                          {shift.chatters?.name ?? '—'}
-                        </p>
-                        {assignments.length > 0 ? (
-                          <div className="mb-1 space-y-0.5">
-                            {Array.from(groupedAssignments.entries()).map(([platform, modelNames]) => (
-                              <p key={platform} className="text-[11px] text-gray-300 truncate">
-                                {getPlatformLabel(platform)}: {modelNames.join(', ')}
-                              </p>
-                            ))}
+                      const statusPriority: Record<Shift['status'], number> = {
+                        missed: 0,
+                        rejected: 1,
+                        cancelled: 2,
+                        pending: 3,
+                        scheduled: 4,
+                        active: 5,
+                        completed: 6,
+                      };
+
+                      return Array.from(chatterGroups.entries()).map(([chatterId, groupShifts]) => {
+                        const representativeShift = groupShifts[0];
+                        const allAssignments: {
+                          model_id: string | null;
+                          model: string;
+                          platform: Platform;
+                        }[] = [];
+                        const seenAssignments = new Set<string>();
+
+                        for (const groupedShift of groupShifts) {
+                          const assignments = getShiftAssignments(groupedShift);
+                          for (const assignment of assignments) {
+                            const assignmentKey = `${assignment.model_id}|${assignment.platform}`;
+                            if (seenAssignments.has(assignmentKey)) continue;
+                            seenAssignments.add(assignmentKey);
+                            allAssignments.push(assignment);
+                          }
+                        }
+
+                        const platformAssignments = new Map<Platform, string[]>();
+                        for (const assignment of allAssignments) {
+                          const modelNames = platformAssignments.get(assignment.platform) ?? [];
+                          modelNames.push(assignment.model);
+                          platformAssignments.set(assignment.platform, modelNames);
+                        }
+
+                        const displayStatus = groupShifts.reduce<Shift['status']>(
+                          (worstStatus, groupedShift) =>
+                            statusPriority[groupedShift.status] < statusPriority[worstStatus]
+                              ? groupedShift.status
+                              : worstStatus,
+                          representativeShift.status
+                        );
+
+                        return (
+                          <div
+                            key={`chatter-${chatterId}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditShift(representativeShift);
+                            }}
+                            className={cn(
+                              'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
+                              displayStatus === 'active'
+                                ? 'bg-green-900/35'
+                                : displayStatus === 'completed'
+                                  ? 'bg-blue-900/30'
+                                  : displayStatus === 'missed'
+                                    ? 'bg-red-900/35'
+                                    : displayStatus === 'scheduled'
+                                      ? 'bg-gray-700/50'
+                                      : displayStatus === 'pending'
+                                        ? 'bg-yellow-900/30'
+                                        : 'bg-red-950/30'
+                            )}
+                          >
+                            <p className="text-xs font-semibold text-white truncate mb-1">
+                              {representativeShift.chatters?.name ?? '—'}
+                            </p>
+                            {allAssignments.length > 0 ? (
+                              <div className="mb-1 space-y-0.5">
+                                {Array.from(platformAssignments.entries()).map(
+                                  ([platform, modelNames]) => (
+                                    <p key={platform} className="text-[11px] text-gray-300 truncate">
+                                      {getPlatformLabel(platform)}: {modelNames.join(', ')}
+                                    </p>
+                                  )
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-500 truncate mb-1">טרם שובץ</p>
+                            )}
+                            <p className="text-[11px] text-gray-400 font-mono mb-1">
+                              {formatTime(representativeShift.start_time)}–
+                              {formatTime(representativeShift.end_time)}
+                            </p>
+                            <StatusBadge status={displayStatus} />
                           </div>
-                        ) : (
-                          <p className="text-xs text-gray-500 truncate mb-1">טרם שובץ</p>
-                        )}
-                        <p className="text-[11px] text-gray-400 font-mono mb-1">
-                          {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
-                        </p>
-                        <StatusBadge status={shift.status} />
-                      </div>
-                    );
-                  })}
+                        );
+                      });
+                    })()}
 
                     {isTooltipVisible && (
                       <div

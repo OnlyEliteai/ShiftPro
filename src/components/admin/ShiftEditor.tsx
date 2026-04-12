@@ -75,32 +75,50 @@ export function ShiftEditor({
   const existingAssignments = useMemo<ShiftCombination[]>(() => {
     if (!shift) return [];
 
-    if (shift.shift_assignments && shift.shift_assignments.length > 0) {
-      return shift.shift_assignments
-        .filter((assignment) => assignment.model_id)
-        .map((assignment) => ({
-          model_id: assignment.model_id as string,
-          model: assignment.model,
-          platform: assignment.platform,
-        }));
-    }
+    const siblings = existingShifts.filter(
+      (s) =>
+        s.chatter_id === shift.chatter_id &&
+        s.date === shift.date &&
+        s.start_time === shift.start_time &&
+        s.end_time === shift.end_time
+    );
 
-    if (shift.model && shift.platform) {
-      const resolvedModelId =
-        shift.model_id ?? models.find((model) => model.name === shift.model)?.id ?? '';
-      if (!resolvedModelId) return [];
+    const assignments: ShiftCombination[] = [];
+    const seen = new Set<string>();
 
-      return [
-        {
+    for (const sibling of siblings) {
+      if (sibling.shift_assignments && sibling.shift_assignments.length > 0) {
+        for (const assignment of sibling.shift_assignments) {
+          if (!assignment.model_id) continue;
+          const key = `${assignment.model_id}|${assignment.platform}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          assignments.push({
+            model_id: assignment.model_id as string,
+            model: assignment.model,
+            platform: assignment.platform,
+          });
+        }
+        continue;
+      }
+
+      if (sibling.model && sibling.platform) {
+        const resolvedModelId =
+          sibling.model_id ?? models.find((model) => model.name === sibling.model)?.id ?? '';
+        if (!resolvedModelId) continue;
+        const key = `${resolvedModelId}|${sibling.platform}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        assignments.push({
           model_id: resolvedModelId,
-          model: shift.model,
-          platform: shift.platform,
-        },
-      ];
+          model: sibling.model,
+          platform: sibling.platform,
+        });
+      }
     }
 
-    return [];
-  }, [shift, models]);
+    return assignments;
+  }, [shift, existingShifts, models]);
 
   const initialSelectedModelIds = useMemo(
     () => Array.from(new Set(existingAssignments.map((assignment) => assignment.model_id))),
@@ -205,7 +223,14 @@ export function ShiftEditor({
     }
 
     const duplicate = existingShifts.some((existing) => {
-      if (isEditing && existing.id === shift?.id) return false;
+      if (isEditing) {
+        const isSibling =
+          existing.chatter_id === shift?.chatter_id &&
+          existing.date === shift?.date &&
+          existing.start_time === shift?.start_time &&
+          existing.end_time === shift?.end_time;
+        if (isSibling) return false;
+      }
       const matchesWindow =
         form.shift_type === 'morning'
           ? existing.start_time.startsWith('12:00')
