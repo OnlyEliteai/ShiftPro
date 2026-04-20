@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import type { Platform } from '../../lib/types';
+import { toCsv, triggerDownload } from '../../lib/exportCsv';
 
 interface AdminExportPanelProps {
   showToast: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void;
@@ -12,13 +13,13 @@ interface ShiftExportRow {
   date: string;
   start_time: string;
   end_time: string;
+  shift_type: 'morning' | 'evening' | null;
   status: string;
   clocked_in: string | null;
   clocked_out: string | null;
   model: string | null;
   platform: Platform | null;
   chatters: ChatterRelation;
-  shift_assignments: Array<{ model: string; platform: Platform }> | null;
 }
 
 interface SummaryExportRow {
@@ -34,11 +35,17 @@ interface SummaryExportRow {
   chatters: ChatterRelation;
 }
 
-function pad2(value: number) {
+interface CachedRange<T> {
+  startDate: string;
+  endDate: string;
+  rows: T[];
+}
+
+function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-function formatInputDate(date: Date) {
+function formatInputDate(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
@@ -52,62 +59,44 @@ function getDefaultDateRange() {
   };
 }
 
-function getChatterName(chatters: ChatterRelation) {
+function getChatterName(chatters: ChatterRelation): string {
   if (!chatters) return '';
   if (Array.isArray(chatters)) return chatters[0]?.name ?? '';
   return chatters.name ?? '';
 }
 
-function getShiftTypeLabel(startTime: string) {
-  const hour = Number(startTime.slice(0, 2));
-  return startTime.startsWith('12:00') || hour < 19 ? 'morning' : 'evening';
+function withinRange(itemDate: string, startDate: string, endDate: string) {
+  return itemDate >= startDate && itemDate <= endDate;
 }
 
-function getPlatformLabel(platform: Platform) {
-  return platform === 'telegram' ? 'telegram' : 'onlyfans';
+function canUseCache<T>(cache: CachedRange<T> | null, startDate: string, endDate: string) {
+  if (!cache) return false;
+  return startDate >= cache.startDate && endDate <= cache.endDate;
 }
 
-function escapeCSVValue(value: unknown) {
-  const str = value == null ? '' : String(value);
-  if (str.includes('"') || str.includes(',') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-function exportToCSV(headers: string[], rows: Array<Array<string | number>>) {
-  const csv = [
-    headers.map(escapeCSVValue).join(','),
-    ...rows.map((row) => row.map(escapeCSVValue).join(',')),
-  ].join('\n');
-
-  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  return url;
-}
-
-function formatFilename(prefix: string, startDate: string, endDate: string) {
+function filename(prefix: string, startDate: string, endDate: string) {
   return `${prefix}_${startDate}_to_${endDate}.csv`;
 }
 
 export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
   const defaults = useMemo(() => getDefaultDateRange(), []);
+  const [open, setOpen] = useState(false);
   const [startDate, setStartDate] = useState(defaults.startDate);
   const [endDate, setEndDate] = useState(defaults.endDate);
-  const [exporting, setExporting] = useState<'shifts' | 'summaries' | null>(null);
+  const [loading, setLoading] = useState<'shifts' | 'summaries' | null>(null);
+  const [shiftCache, setShiftCache] = useState<CachedRange<ShiftExportRow> | null>(null);
+  const [summaryCache, setSummaryCache] = useState<CachedRange<SummaryExportRow> | null>(null);
 
-  const isInvalidRange = startDate > endDate;
+  const invalidRange = startDate > endDate;
 
-  async function handleExportShifts() {
-    if (isInvalidRange) {
-      showToast('error', 'טווח תאריכים לא תקין');
-      return;
+  const fetchShiftRows = async (): Promise<ShiftExportRow[] | null> => {
+    if (shiftCache && canUseCache(shiftCache, startDate, endDate)) {
+      return shiftCache.rows.filter((row) => withinRange(row.date, startDate, endDate));
     }
 
-    setExporting('shifts');
     const { data, error } = await supabase
       .from('shifts')
-      .select('date, start_time, end_time, status, clocked_in, clocked_out, model, platform, chatters(name), shift_assignments(model, platform)')
+      .select('date, start_time, end_time, shift_type, status, clocked_in, clocked_out, model, platform, chatters(name)')
       .gte('date', startDate)
       .lte('date', endDate)
       .order('date', { ascending: true })
@@ -115,70 +104,19 @@ export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
 
     if (error) {
       showToast('error', 'שגיאה בייצוא משמרות');
-      setExporting(null);
-      return;
+      return null;
     }
 
-    const rows = ((data ?? []) as ShiftExportRow[]).map((row) => {
-      const assignments = row.shift_assignments ?? [];
-      const assignmentModels = Array.from(new Set(assignments.map((assignment) => assignment.model)));
-      const assignmentPlatforms = Array.from(
-        new Set(assignments.map((assignment) => getPlatformLabel(assignment.platform)))
-      );
+    const rows = (data ?? []) as ShiftExportRow[];
+    setShiftCache({ startDate, endDate, rows });
+    return rows;
+  };
 
-      const models = assignmentModels.length > 0
-        ? assignmentModels.join(' | ')
-        : row.model ?? '';
-      const platforms = assignmentPlatforms.length > 0
-        ? assignmentPlatforms.join(' | ')
-        : row.platform
-          ? getPlatformLabel(row.platform)
-          : '';
-
-      return [
-        row.date,
-        getChatterName(row.chatters),
-        getShiftTypeLabel(row.start_time),
-        row.start_time,
-        row.end_time,
-        models,
-        platforms,
-        row.status,
-        row.clocked_in ?? '',
-        row.clocked_out ?? '',
-      ];
-    });
-
-    const headers = [
-      'date',
-      'chatter_name',
-      'shift_type',
-      'start_time',
-      'end_time',
-      'models',
-      'platforms',
-      'status',
-      'clocked_in',
-      'clocked_out',
-    ];
-
-    const csvUrl = exportToCSV(headers, rows);
-    const link = document.createElement('a');
-    link.href = csvUrl;
-    link.download = formatFilename('shifts', startDate, endDate);
-    link.click();
-    URL.revokeObjectURL(csvUrl);
-    showToast('success', 'ייצוא משמרות הושלם');
-    setExporting(null);
-  }
-
-  async function handleExportSummaries() {
-    if (isInvalidRange) {
-      showToast('error', 'טווח תאריכים לא תקין');
-      return;
+  const fetchSummaryRows = async (): Promise<SummaryExportRow[] | null> => {
+    if (summaryCache && canUseCache(summaryCache, startDate, endDate)) {
+      return summaryCache.rows.filter((row) => withinRange(row.date, startDate, endDate));
     }
 
-    setExporting('summaries');
     const { data, error } = await supabase
       .from('daily_summaries')
       .select('date, shift_type, income_onlyfans, income_telegram, income_transfers, income_other, income_total, availability_status, improvement_suggestions, chatters(name)')
@@ -188,11 +126,64 @@ export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
 
     if (error) {
       showToast('error', 'שגיאה בייצוא סיכומים');
-      setExporting(null);
+      return null;
+    }
+
+    const rows = (data ?? []) as SummaryExportRow[];
+    setSummaryCache({ startDate, endDate, rows });
+    return rows;
+  };
+
+  const exportShifts = async () => {
+    if (invalidRange) {
+      showToast('error', 'טווח תאריכים לא תקין');
       return;
     }
 
-    const rows = ((data ?? []) as SummaryExportRow[]).map((row) => [
+    setLoading('shifts');
+    const rows = await fetchShiftRows();
+    if (!rows) {
+      setLoading(null);
+      return;
+    }
+
+    const csvRows = rows.map((row) => [
+      row.date,
+      getChatterName(row.chatters),
+      row.shift_type ?? '',
+      row.start_time,
+      row.end_time,
+      row.model ?? '',
+      row.platform ?? '',
+      row.status,
+      row.clocked_in ?? '',
+      row.clocked_out ?? '',
+    ]);
+
+    const blob = toCsv(
+      ['תאריך', 'שם צ׳אטר', 'סוג משמרת', 'שעת התחלה', 'שעת סיום', 'מודל', 'פלטפורמה', 'סטטוס', 'כניסה בפועל', 'יציאה בפועל'],
+      csvRows
+    );
+
+    triggerDownload(blob, filename('shifts', startDate, endDate));
+    showToast('success', 'ייצוא משמרות הושלם');
+    setLoading(null);
+  };
+
+  const exportSummaries = async () => {
+    if (invalidRange) {
+      showToast('error', 'טווח תאריכים לא תקין');
+      return;
+    }
+
+    setLoading('summaries');
+    const rows = await fetchSummaryRows();
+    if (!rows) {
+      setLoading(null);
+      return;
+    }
+
+    const csvRows = rows.map((row) => [
       row.date,
       getChatterName(row.chatters),
       row.shift_type ?? '',
@@ -205,77 +196,89 @@ export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
       row.improvement_suggestions ?? '',
     ]);
 
-    const headers = [
-      'date',
-      'chatter_name',
-      'shift_type',
-      'income_onlyfans',
-      'income_telegram',
-      'income_transfers',
-      'income_other',
-      'income_total',
-      'availability_status',
-      'notes',
-    ];
+    const blob = toCsv(
+      ['תאריך', 'שם צ׳אטר', 'סוג משמרת', 'OnlyFans', 'Telegram', 'העברות', 'אחר', 'סה״כ', 'סטטוס זמינות', 'הערות'],
+      csvRows
+    );
 
-    const csvUrl = exportToCSV(headers, rows);
-    const link = document.createElement('a');
-    link.href = csvUrl;
-    link.download = formatFilename('daily_summaries', startDate, endDate);
-    link.click();
-    URL.revokeObjectURL(csvUrl);
+    triggerDownload(blob, filename('summaries', startDate, endDate));
     showToast('success', 'ייצוא סיכומים הושלם');
-    setExporting(null);
-  }
+    setLoading(null);
+  };
 
   return (
-    <section className="mt-6 bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
-      <div>
-        <h3 className="text-lg font-bold text-white">ייצוא נתונים</h3>
-        <p className="text-xs text-gray-400 mt-1">בחר טווח תאריכים וייצא CSV (Excel-ready)</p>
+    <section className="mt-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold text-white">ייצוא נתונים</h3>
+          <p className="text-xs text-gray-400 mt-1">קובצי CSV עם תאימות Excel מלאה</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+        >
+          ייצוא נתונים
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-sm text-gray-300">
-          מתאריך
-          <input
-            type="date"
-            value={startDate}
-            onChange={(event) => setStartDate(event.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-gray-300">
-          עד תאריך
-          <input
-            type="date"
-            value={endDate}
-            onChange={(event) => setEndDate(event.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white"
-          />
-        </label>
-      </div>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-xl rounded-xl border border-gray-700 bg-gray-900 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-lg font-semibold text-white">ייצוא נתונים</h4>
+              <button type="button" onClick={() => setOpen(false)} className="text-sm text-gray-300">סגור</button>
+            </div>
 
-      {isInvalidRange && (
-        <p className="text-xs text-red-400">טווח תאריכים לא תקין</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-sm text-gray-300">
+                מתאריך
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-300">
+                עד תאריך
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                />
+              </label>
+            </div>
+
+            {invalidRange && <p className="text-xs text-red-400">טווח תאריכים לא תקין</p>}
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void exportShifts();
+                }}
+                disabled={loading !== null || invalidRange}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+              >
+                {loading === 'shifts' ? 'מייצא...' : 'ייצוא משמרות'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void exportSummaries();
+                }}
+                disabled={loading !== null || invalidRange}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-60"
+              >
+                {loading === 'summaries' ? 'מייצא...' : 'ייצוא סיכומים'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-
-      <div className="flex flex-col sm:flex-row gap-2">
-        <button
-          onClick={() => void handleExportShifts()}
-          disabled={Boolean(exporting) || isInvalidRange}
-          className="min-h-[40px] px-4 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium"
-        >
-          {exporting === 'shifts' ? 'מייצא...' : 'ייצוא משמרות'}
-        </button>
-        <button
-          onClick={() => void handleExportSummaries()}
-          disabled={Boolean(exporting) || isInvalidRange}
-          className="min-h-[40px] px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-sm font-medium"
-        >
-          {exporting === 'summaries' ? 'מייצא...' : 'ייצוא סיכומים'}
-        </button>
-      </div>
     </section>
   );
 }

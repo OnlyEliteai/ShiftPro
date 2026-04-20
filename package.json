@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "lint": "eslint src",
+    "preview": "vite preview",
+    "test": "npx -y vitest src/lib/__tests__"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
