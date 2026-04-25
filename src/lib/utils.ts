@@ -28,6 +28,7 @@ export const LABELS = {
   active: 'פעיל',
   completed: 'הושלם',
   missed: 'לא הגיע',
+  partial: 'חלקי',
   online: 'מחובר/ת',
   activeChatters: 'צ׳אטרים פעילים',
   currentlyOnShift: 'במשמרת כרגע',
@@ -210,6 +211,15 @@ export const LABELS = {
   close: 'סגור',
   openShiftsDescription: 'משמרות פתוחות להרשמה',
 } as const;
+
+export const PLATFORM_LABELS = {
+  telegram: 'טלגרם',
+  onlyfans: 'אונליפאנס',
+} as const;
+
+export function getPlatformLabel(platform: keyof typeof PLATFORM_LABELS): string {
+  return PLATFORM_LABELS[platform];
+}
 
 export function formatTime(time: string): string {
   return time.slice(0, 5);
