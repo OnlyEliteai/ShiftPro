@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { SUPABASE_URL, supabase } from '../../lib/supabase';
 import type { Model, Shift } from '../../lib/types';
 
 type AvailabilityStatus = 'full' | 'partial' | 'unavailable';
 
 interface DailySummaryModalProps {
   shift: Shift;
+  windowShifts?: Shift[];
   chatterId: string;
+  token: string;
   models: Model[];
+  successMessage?: string;
   onClose: () => void;
   onSubmitted: () => Promise<void> | void;
   showToast: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void;
@@ -46,8 +49,11 @@ function getShiftType(startTime: string): 'בוקר' | 'ערב' {
 
 export function DailySummaryModal({
   shift,
+  windowShifts,
   chatterId,
+  token,
   models,
+  successMessage = 'הסיכום נשלח בהצלחה!',
   onClose,
   onSubmitted,
   showToast,
@@ -85,43 +91,28 @@ export function DailySummaryModal({
 
   useEffect(() => {
     let active = true;
-    const baseAssignments = buildInitialAssignments(models);
-
     const modelIdByName = new Map<string, string>();
     for (const model of models) {
       modelIdByName.set(model.name.trim().toLowerCase(), model.id);
     }
 
-    const loadAssignments = async () => {
-      const { data, error: fetchError } = await supabase
-        .from('shift_assignments')
-        .select('model_id, model, platform')
-        .eq('shift_id', shift.id);
+    const next = buildInitialAssignments(models);
+    for (const row of windowShifts?.length ? windowShifts : [shift]) {
+      if (!row.model || !row.platform) continue;
+      const modelId = modelIdByName.get(row.model.trim().toLowerCase()) ?? null;
+      if (!modelId || !next[modelId]) continue;
+      if (row.platform === 'telegram') next[modelId].telegram = true;
+      if (row.platform === 'onlyfans') next[modelId].onlyfans = true;
+    }
 
-      if (!active) {
-        return;
-      }
-      if (fetchError || !data) {
-        setAssignments(baseAssignments);
-        return;
-      }
+    Promise.resolve().then(() => {
+      if (active) setAssignments(next);
+    });
 
-      const next = buildInitialAssignments(models);
-      for (const row of data as { model_id: string | null; model: string; platform: 'telegram' | 'onlyfans' }[]) {
-        const modelId = row.model_id ?? modelIdByName.get(row.model.trim().toLowerCase()) ?? null;
-        if (!modelId || !next[modelId]) continue;
-        if (row.platform === 'telegram') next[modelId].telegram = true;
-        if (row.platform === 'onlyfans') next[modelId].onlyfans = true;
-      }
-
-      setAssignments(next);
-    };
-
-    void loadAssignments();
     return () => {
       active = false;
     };
-  }, [models, shift.id]);
+  }, [models, shift, windowShifts]);
 
   const assignmentPayload = useMemo(() => {
     return Object.values(assignments)
@@ -264,37 +255,23 @@ export function DailySummaryModal({
       return;
     }
 
-    const nowIso = new Date().toISOString();
-    const { data: completedShift, error: shiftError } = await supabase
-      .from('shifts')
-      .update({ status: 'completed', clocked_out: nowIso })
-      .eq('id', shift.id)
-      .eq('chatter_id', chatterId)
-      .eq('status', 'active')
-      .select('id')
-      .maybeSingle();
-
-    if (shiftError || !completedShift) {
-      showToast('error', 'שגיאה ביציאה מהמשמרת');
-      setSubmitting(false);
-      return;
-    }
-
-    const { error: activityError } = await supabase.from('activity_log').insert({
-      shift_id: shift.id,
-      chatter_id: chatterId,
-      action: 'clock_out',
-    });
-
-    if (activityError) {
-      showToast('error', 'שגיאה ברישום פעילות');
-      setSubmitting(false);
-      return;
+    try {
+      const clockOutResponse = await fetch(`${SUPABASE_URL}/functions/v1/clock-out`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, shiftId: shift.id }),
+      });
+      if (!clockOutResponse.ok && clockOutResponse.status !== 400) {
+        const payload = await clockOutResponse.json().catch(() => ({} as { error?: string }));
+        console.error('[DailySummary] clock-out failed:', payload.error ?? clockOutResponse.status);
+      }
+    } catch (clockOutError) {
+      console.error('[DailySummary] clock-out request failed:', clockOutError);
     }
 
     setSubmitted(true);
     setError(null);
-    showToast('success', 'הסיכום נשלח בהצלחה!');
+    showToast('success', successMessage);
     setSubmitting(false);
     await onSubmitted();
   }
