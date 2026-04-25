@@ -1,0 +1,7 @@
+project_id = "cudyljivkfmkknfkldht"
+
+[functions.clock-in]
+verify_jwt = false
+
+[functions.clock-out]
+verify_jwt = false
