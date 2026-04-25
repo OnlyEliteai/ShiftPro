@@ -1431,7 +1431,7 @@ export function ChatterPage() {
             </section>
           )}
 
-          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4">
             <h2 className="text-base font-bold text-white mb-3">{LABELS.pastShifts}</h2>
             {loadingPastShifts ? (
               <LoadingSpinner />
@@ -1525,7 +1525,7 @@ export function ChatterPage() {
             </section>
           )}
 
-          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4 space-y-3">
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-base font-bold text-white">המשמרת הבאה</h2>
               {nextShiftWindow && (
@@ -1553,7 +1553,7 @@ export function ChatterPage() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4">
             <h2 className="text-base font-bold text-white mb-2">יעד חודשי</h2>
             {monthlyGoal === null ? (
               <p className="text-sm text-gray-300">לא הוגדר יעד חודשי</p>
