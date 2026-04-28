@@ -10,6 +10,7 @@ import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
 import type { Model, Platform, Shift, ShiftAssignment, ShiftSlot, ShiftWithChatter } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
+import { mergeShiftBlocks } from '../lib/shiftBlockMerge';
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
 const SHIFT_SELECT_WITH_ASSIGNMENTS = `
@@ -192,6 +193,11 @@ function formatAssignmentsSummary(shift: Shift) {
   return Array.from(byPlatform.entries())
     .map(([platform, models]) => `${models.join(', ')} (${getPlatformLabel(platform)})`)
     .join(' • ');
+}
+
+function formatMergedAssignments(assignments: Array<{ model: string; platform: Platform }>) {
+  if (assignments.length === 0) return '';
+  return assignments.map((assignment) => `${assignment.model} (${getPlatformLabel(assignment.platform)})`).join(' • ');
 }
 
 function getSlotTypeLabel(shiftType: ShiftSlot['shift_type']) {
@@ -406,7 +412,22 @@ export function ChatterPage() {
       grouped[shift.date][shiftType].push(shift);
     }
 
-    return grouped;
+    const merged: Record<
+      string,
+      {
+        morning: ReturnType<typeof mergeShiftBlocks>;
+        evening: ReturnType<typeof mergeShiftBlocks>;
+      }
+    > = {};
+
+    for (const date of weekDates) {
+      merged[date] = {
+        morning: mergeShiftBlocks(grouped[date].morning),
+        evening: mergeShiftBlocks(grouped[date].evening),
+      };
+    }
+
+    return merged;
   }, [sharedWeekShifts, weekDates]);
 
   const openSummaryModal = useCallback((shift: Shift, source: SummaryModalSource) => {
@@ -516,7 +537,7 @@ export function ChatterPage() {
 
     const yesterdayParts = getIsraelDateParts(new Date(Date.now() - 24 * 60 * 60 * 1000));
     const yesterday = toDateKey(yesterdayParts.year, yesterdayParts.month, yesterdayParts.day);
-    const [weeklyRes, upcomingRes, activeRes] = await Promise.all([
+    const [weeklyRes, upcomingRes, activeRes, overnightRes] = await Promise.all([
       supabase
         .from('shifts')
         .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
@@ -542,15 +563,32 @@ export function ChatterPage() {
         .order('start_time', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('shifts')
+        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
+        .eq('chatter_id', chatter.id)
+        .eq('date', yesterday)
+        .in('status', ['scheduled', 'active', 'completed']),
     ]);
 
-    if (weeklyRes.error || upcomingRes.error || activeRes.error) {
+    if (weeklyRes.error || upcomingRes.error || activeRes.error || overnightRes.error) {
       showToast('error', LABELS.noConnection);
       setLoadingShifts(false);
       return;
     }
 
-    const weeklyData = (weeklyRes.data ?? []) as Shift[];
+    const weeklyMap = new Map<string, Shift>();
+    for (const row of (weeklyRes.data ?? []) as Shift[]) {
+      weeklyMap.set(row.id, row);
+    }
+    for (const row of (overnightRes.data ?? []) as Shift[]) {
+      const isOvernight = row.end_time <= row.start_time;
+      if (!isOvernight) continue;
+      weeklyMap.set(row.id, row);
+    }
+    const weeklyData = Array.from(weeklyMap.values()).sort(
+      (a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time)
+    );
     const upcomingShifts = (upcomingRes.data ?? []) as Shift[];
     const nearestFutureShift =
       upcomingShifts
@@ -570,21 +608,45 @@ export function ChatterPage() {
     if (!chatter) return;
     setLoadingSharedBoard(true);
 
-    const { data, error: sharedError } = await supabase
-      .from('shifts')
-      .select('*, chatters(name), shift_assignments(model, platform)')
-      .in('date', weekDates)
-      .in('status', ['scheduled', 'active', 'completed'])
-      .order('date', { ascending: true })
-      .order('start_time', { ascending: true });
+    const yesterdayParts = getIsraelDateParts(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const yesterday = toDateKey(yesterdayParts.year, yesterdayParts.month, yesterdayParts.day);
 
-    if (sharedError) {
+    const [sharedRes, overnightRes] = await Promise.all([
+      supabase
+        .from('shifts')
+        .select('*, chatters(name), shift_assignments(model, platform)')
+        .in('date', weekDates)
+        .in('status', ['scheduled', 'active', 'completed'])
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true }),
+      supabase
+        .from('shifts')
+        .select('*, chatters(name), shift_assignments(model, platform)')
+        .eq('date', yesterday)
+        .in('status', ['scheduled', 'active', 'completed']),
+    ]);
+
+    if (sharedRes.error || overnightRes.error) {
       showToast('error', LABELS.noConnection);
       setLoadingSharedBoard(false);
       return;
     }
 
-    setSharedWeekShifts((data ?? []) as ShiftWithChatter[]);
+    const merged = new Map<string, ShiftWithChatter>();
+    for (const row of (sharedRes.data ?? []) as ShiftWithChatter[]) {
+      merged.set(row.id, row);
+    }
+    for (const row of (overnightRes.data ?? []) as ShiftWithChatter[]) {
+      const isOvernight = row.end_time <= row.start_time;
+      if (!isOvernight) continue;
+      merged.set(row.id, row);
+    }
+
+    setSharedWeekShifts(
+      Array.from(merged.values()).sort(
+        (a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time)
+      )
+    );
     setLoadingSharedBoard(false);
   }, [chatter, showToast, weekDates]);
 
@@ -1201,27 +1263,13 @@ export function ChatterPage() {
     ],
     []
   );
-
-  const getShiftChatterName = useCallback((shift: ShiftWithChatter) => {
-    return shift.chatters?.name ?? LABELS.unknown;
-  }, []);
-
-  const getSharedWindowNames = useCallback(
-    (shift: ShiftWithChatter) => {
-      const names = sharedWeekShifts
-        .filter(
-          (candidate) =>
-            candidate.id !== shift.id &&
-            candidate.date === shift.date &&
-            candidate.start_time === shift.start_time &&
-            candidate.end_time === shift.end_time
-        )
-        .map((candidate) => getShiftChatterName(candidate))
-        .filter((name) => Boolean(name));
-
-      return Array.from(new Set(names));
-    },
-    [getShiftChatterName, sharedWeekShifts]
+  const hasSharedVisibleShifts = useMemo(
+    () =>
+      weekDates.some((date) => {
+        const day = sharedShiftsByDateAndWindow[date];
+        return Boolean(day && (day.morning.length > 0 || day.evening.length > 0));
+      }),
+    [sharedShiftsByDateAndWindow, weekDates]
   );
 
   if (loading) {
@@ -1696,7 +1744,7 @@ export function ChatterPage() {
 
               {loadingSharedBoard ? (
                 <LoadingSpinner />
-              ) : sharedWeekShifts.length === 0 ? (
+              ) : !hasSharedVisibleShifts ? (
                 <p className="text-sm text-gray-400">אין משמרות להצגה השבוע</p>
               ) : (
                 <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
@@ -1723,15 +1771,18 @@ export function ChatterPage() {
                             key={`${window.key}-${date}`}
                             className="min-h-[170px] rounded-lg p-2 space-y-2 border bg-gray-800/30 border-gray-800"
                           >
-                            {sharedShiftsByDateAndWindow[date][window.key].map((shift) => {
-                              const isOwnShift = shift.chatter_id === chatter?.id;
-                              const statusBadge = getSharedBoardStatusBadge(shift.status);
-                              const assignmentsSummary = formatAssignmentsSummary(shift);
-                              const withYouNames = getSharedWindowNames(shift);
+                            {sharedShiftsByDateAndWindow[date][window.key].map((block) => {
+                              const isOwnShift = block.chatterId === chatter?.id;
+                              const statusBadge = getSharedBoardStatusBadge(block.status);
+                              const assignmentsSummary = formatMergedAssignments(block.assignments);
+                              const withYouNames = sharedShiftsByDateAndWindow[date][window.key]
+                                .filter((candidate) => candidate.key !== block.key)
+                                .map((candidate) => candidate.chatterName)
+                                .filter(Boolean);
 
                               return (
                                 <article
-                                  key={shift.id}
+                                  key={block.key}
                                   className={cn(
                                     'rounded-md p-2 border',
                                     isOwnShift
@@ -1741,7 +1792,7 @@ export function ChatterPage() {
                                 >
                                   <div className="flex items-start justify-between gap-2 mb-1">
                                     <p className="text-xs font-semibold text-white truncate">
-                                      {getShiftChatterName(shift)}
+                                      {block.chatterName}
                                     </p>
                                     {isOwnShift && (
                                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">
@@ -1751,7 +1802,7 @@ export function ChatterPage() {
                                   </div>
 
                                   <p className="text-[11px] text-gray-300 truncate mb-1">
-                                    {assignmentsSummary || 'טרם שובץ מודל'}
+                                    {assignmentsSummary || 'ללא הקצאה'}
                                   </p>
 
                                   {withYouNames.length > 0 && (
@@ -1762,7 +1813,7 @@ export function ChatterPage() {
 
                                   <div className="flex items-center justify-between gap-2">
                                     <p className="text-[11px] text-gray-400 font-mono">
-                                      {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
+                                      {formatTime(block.startTime)}–{formatTime(block.endTime)}
                                     </p>
                                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${statusBadge.className}`}>
                                       {statusBadge.label}

@@ -4,6 +4,7 @@ import type { Model, Platform, Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
+import { mergeShiftBlocks } from '../../lib/shiftBlockMerge';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
@@ -186,23 +187,29 @@ export function WeeklyGrid({
     return { cellKey, flipToLeft };
   }
 
-  function getCoverageKeyFromShift(shift: ShiftWithChatter): string | null {
-    if (!COVERAGE_STATUSES.has(shift.status)) return null;
-    if (!shift.model || !shift.platform) return null;
+  function getCoverageKeysFromShift(shift: ShiftWithChatter): string[] {
+    if (!COVERAGE_STATUSES.has(shift.status)) return [];
+    const assignments = getShiftAssignments(shift);
+    if (assignments.length === 0) return [];
 
-    const resolvedModelId =
-      shift.model_id ?? modelIdByName.get(shift.model.trim().toLowerCase()) ?? null;
-    if (!resolvedModelId) return null;
+    const keys: string[] = [];
+    for (const assignment of assignments) {
+      const resolvedModelId =
+        assignment.model_id ?? modelIdByName.get(assignment.model.trim().toLowerCase()) ?? null;
+      if (!resolvedModelId) continue;
+      keys.push(makeCoverageKey(resolvedModelId, assignment.platform));
+    }
 
-    return makeCoverageKey(resolvedModelId, shift.platform);
+    return keys;
   }
 
   function getCoveredAssignments(cellShifts: ShiftWithChatter[]) {
     const covered = new Set<string>();
 
     for (const shift of cellShifts) {
-      const coverageKey = getCoverageKeyFromShift(shift);
-      if (coverageKey) covered.add(coverageKey);
+      for (const coverageKey of getCoverageKeysFromShift(shift)) {
+        covered.add(coverageKey);
+      }
     }
 
     return covered;
@@ -345,6 +352,7 @@ export function WeeklyGrid({
               </div>
               {weekDates.map((date) => {
                 const cellShifts = shiftsByDateAndWindow[date][window.key];
+                const mergedBlocks = mergeShiftBlocks(cellShifts);
                 const cellKey = getCellKey(date, window.key);
                 const coverage = getCellCoverage(cellShifts);
                 const activeTooltip = isTouchDevice ? tappedTooltip : hoveredTooltip;
@@ -377,58 +385,73 @@ export function WeeklyGrid({
                       handleCellClick(date, window.key, event.currentTarget as HTMLDivElement)
                     }
                   >
-                    {cellShifts.map((shift) => {
-                    const assignments = getShiftAssignments(shift);
-                    const groupedAssignments = new Map<Platform, string[]>();
-                    for (const assignment of assignments) {
-                      const modelsForPlatform = groupedAssignments.get(assignment.platform) ?? [];
-                      modelsForPlatform.push(assignment.model);
-                      groupedAssignments.set(assignment.platform, modelsForPlatform);
-                    }
-
-                    return (
+                    {mergedBlocks.map((block) => (
                       <div
-                        key={shift.id}
+                        key={block.key}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onEditShift(shift);
+                          onEditShift(block.primaryShift);
                         }}
                         className={cn(
                           'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
-                          shift.status === 'active'
+                          block.status === 'active'
                             ? 'bg-green-900/35'
-                            : shift.status === 'completed'
+                            : block.status === 'completed'
                               ? 'bg-blue-900/30'
-                              : shift.status === 'missed'
+                              : block.status === 'missed'
                                 ? 'bg-red-900/35'
-                                : shift.status === 'scheduled'
+                                : block.status === 'scheduled'
                                   ? 'bg-gray-700/50'
-                                  : shift.status === 'pending'
+                                  : block.status === 'pending'
                                     ? 'bg-yellow-900/30'
                                     : 'bg-red-950/30'
                         )}
                       >
                         <p className="text-xs font-semibold text-white truncate mb-1">
-                          {shift.chatters?.name ?? '—'}
+                          {block.chatterName}
                         </p>
-                        {assignments.length > 0 ? (
-                          <div className="mb-1 space-y-0.5">
-                            {Array.from(groupedAssignments.entries()).map(([platform, modelNames]) => (
-                              <p key={platform} className="text-[11px] text-gray-300 truncate">
-                                {getPlatformLabel(platform)}: {modelNames.join(', ')}
-                              </p>
-                            ))}
+                        <div className="mb-1 flex flex-wrap gap-1">
+                          {block.assignments.length > 0 ? (
+                            block.assignments.map((assignment) => (
+                              <span
+                                key={`${block.key}-${assignment.model}-${assignment.platform}`}
+                                className="inline-flex rounded-full bg-gray-900/80 px-2 py-0.5 text-[10px] text-gray-200"
+                              >
+                                {assignment.model} · {getPlatformLabel(assignment.platform)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="inline-flex rounded-full bg-gray-900/80 px-2 py-0.5 text-[10px] text-gray-400">
+                              ללא הקצאה
+                            </span>
+                          )}
+                        </div>
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <p className="text-[11px] text-gray-400 font-mono">
+                            {formatTime(block.startTime)}–{formatTime(block.endTime)}
+                          </p>
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={cn(
+                                'rounded px-1 py-0.5 text-[10px]',
+                                block.clockedIn ? 'bg-emerald-600/30 text-emerald-200' : 'bg-gray-700 text-gray-400'
+                              )}
+                            >
+                              כניסה
+                            </span>
+                            <span
+                              className={cn(
+                                'rounded px-1 py-0.5 text-[10px]',
+                                block.clockedOut ? 'bg-blue-600/30 text-blue-200' : 'bg-gray-700 text-gray-400'
+                              )}
+                            >
+                              יציאה
+                            </span>
                           </div>
-                        ) : (
-                          <p className="text-xs text-gray-500 truncate mb-1">טרם שובץ</p>
-                        )}
-                        <p className="text-[11px] text-gray-400 font-mono mb-1">
-                          {formatTime(shift.start_time)}–{formatTime(shift.end_time)}
-                        </p>
-                        <StatusBadge status={shift.status} />
+                        </div>
+                        <StatusBadge status={block.status} />
                       </div>
-                    );
-                  })}
+                    ))}
 
                     {isTooltipVisible && (
                       <div
