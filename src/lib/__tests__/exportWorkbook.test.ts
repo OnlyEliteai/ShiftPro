@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExportDailySummaryRow, ExportShiftRow } from '../exportWorkbook';
 import {
   buildExportWorkbookModel,
+  createShiftWorkbookBuffer,
   formatDisplayDate,
   getCurrentWeekDateRange,
   getExportFilename,
@@ -122,5 +123,29 @@ describe('exportWorkbook', () => {
     expect(model.shiftRows[0].models).toBe('Lina · טלגרם, Maya · אונליפאנס');
     expect(model.shiftRows[1].models).toBe('ללא הקצאה');
     expect(model.summaryRows[0].total).toBe(375);
+  });
+
+  it('derives shift type from start time when the database row has no shift_type column', () => {
+    const rowWithoutShiftType = { ...shifts[0] };
+    delete rowWithoutShiftType.shift_type;
+    const model = buildExportWorkbookModel({
+      shifts: [rowWithoutShiftType],
+      summaries: [],
+      startDate: '2026-04-26',
+      endDate: '2026-05-02',
+    });
+
+    expect(model.shiftRows[0].shiftType).toBe('בוקר');
+  });
+
+  it('creates an XLSX buffer without throwing', () => {
+    const buffer = createShiftWorkbookBuffer({
+      shifts,
+      summaries,
+      startDate: '2026-04-26',
+      endDate: '2026-05-02',
+    });
+
+    expect(buffer.byteLength).toBeGreaterThan(0);
   });
 });

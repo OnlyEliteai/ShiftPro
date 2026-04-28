@@ -1,6 +1,7 @@
 export const LABELS = {
   dashboard: 'לוח בקרה',
   schedule: 'לוח משמרות',
+  dailySummaries: 'סיכומי יום',
   chatters: 'צ׳אטרים',
   analytics: 'אנליטיקס',
   approval: 'אישור משמרות',

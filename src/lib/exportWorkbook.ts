@@ -14,7 +14,7 @@ export interface ExportShiftRow {
   date: string;
   start_time: string;
   end_time: string;
-  shift_type: 'morning' | 'evening' | null;
+  shift_type?: 'morning' | 'evening' | null;
   status: Shift['status'];
   clocked_in: string | null;
   clocked_out: string | null;

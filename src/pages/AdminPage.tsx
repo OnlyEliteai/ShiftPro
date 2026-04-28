@@ -12,6 +12,7 @@ import { ShiftEditor } from '../components/admin/ShiftEditor';
 import { ChatterManager } from '../components/admin/ChatterManager';
 import { ModelManager } from '../components/admin/ModelManager';
 import { AdminApproval } from '../components/admin/AdminApproval';
+import { AdminDailySummaries } from '../components/admin/AdminDailySummaries';
 import { ReminderLog } from '../components/admin/ReminderLog';
 import { ErrorLog } from '../components/admin/ErrorLog';
 import { MonthlyGoalsSection } from '../components/admin/MonthlyGoalsSection';
@@ -62,6 +63,7 @@ type Tab =
   | 'dashboard'
   | 'schedule'
   | 'approval'
+  | 'summaries'
   | 'chatters'
   | 'models'
   | 'reminders'
@@ -519,6 +521,9 @@ export function AdminPage() {
             onRefreshShifts={fetchShifts}
           />
         );
+
+      case 'summaries':
+        return <AdminDailySummaries showToast={showToast} previewMode={previewMode} />;
 
       case 'chatters':
         return (

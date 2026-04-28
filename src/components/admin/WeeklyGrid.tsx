@@ -4,7 +4,7 @@ import type { Model, Platform, Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
-import { getMergedShiftAssignmentGroups, groupShiftBlocks } from '../../lib/shiftGrouping';
+import { getMergedShiftAssignmentGroups, groupChatterWindowBlocks } from '../../lib/shiftGrouping';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
@@ -424,14 +424,14 @@ export function WeeklyGrid({
                     }
                   >
                     {(() => {
-                      return groupShiftBlocks(cellShifts).map((block) => {
+                      return groupChatterWindowBlocks(cellShifts).map((block) => {
                         const representativeShift = block.shift;
                         const assignmentGroups = getMergedShiftAssignmentGroups(block);
                         const clockedIn = formatClockTimestamp(representativeShift.clocked_in);
                         const clockedOut = formatClockTimestamp(representativeShift.clocked_out);
                         return (
                           <div
-                            key={block.shiftId}
+                            key={block.key}
                             onClick={(e) => {
                               e.stopPropagation();
                               onEditShift(representativeShift);
@@ -442,11 +442,13 @@ export function WeeklyGrid({
                             )}
                             dir="rtl"
                           >
-                            <div className="mb-2 flex items-start justify-between gap-2">
-                              <p className="min-w-0 truncate text-xs font-bold text-white">
+                            <div className="mb-2 flex min-w-0 flex-col items-start gap-1 overflow-hidden">
+                              <p className="max-w-full whitespace-normal break-words text-xs font-bold leading-4 text-white">
                                 {representativeShift.chatters?.name ?? '—'}
                               </p>
-                              <StatusBadge status={block.status} />
+                              <div className="max-w-full overflow-hidden">
+                                <StatusBadge status={block.status} />
+                              </div>
                             </div>
 
                             <div className="mb-2 flex flex-wrap gap-1.5">

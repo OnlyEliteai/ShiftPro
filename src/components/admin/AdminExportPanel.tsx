@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import type { Chatter, Model } from '../../lib/types';
 import { toCsv, triggerDownload } from '../../lib/exportCsv';
@@ -10,6 +10,7 @@ import {
   type ExportDailySummaryRow,
   type ExportFormat,
   type ExportScope,
+  type ExportWorkbookModel,
   type ExportShiftRow,
 } from '../../lib/exportWorkbook';
 
@@ -77,6 +78,23 @@ function parseDateInput(value: string) {
   return `${year}-${month}-${day}`;
 }
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+});
+
+function formatPreviewValue(value: string | number | null, format?: 'percent' | 'currency') {
+  if (value == null || value === '') return '—';
+  if (format === 'percent' && typeof value === 'number') return `${Math.round(value * 100)}%`;
+  if (format === 'currency' && typeof value === 'number') return currencyFormatter.format(value);
+  return String(value);
+}
+
+function countLabel(count: number) {
+  return count > 8 ? `מוצגות 8 מתוך ${count}` : `${count} שורות`;
+}
+
 export function AdminExportPanel({
   showToast,
   chatters = [],
@@ -92,6 +110,8 @@ export function AdminExportPanel({
   const [selectedChatterId, setSelectedChatterId] = useState('');
   const [selectedModelId, setSelectedModelId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewModel, setPreviewModel] = useState<ExportWorkbookModel | null>(null);
 
   const startDate = parseDateInput(startDateInput);
   const endDate = parseDateInput(endDateInput);
@@ -99,13 +119,17 @@ export function AdminExportPanel({
   const invalidRange = invalidDateInput || startDate > endDate;
   const selectedModel = models.find((model) => model.id === selectedModelId);
 
+  useEffect(() => {
+    setPreviewModel(null);
+  }, [startDateInput, endDateInput, format, scope, selectedChatterId, selectedModelId]);
+
   const fetchExportRows = async (rangeStart: string, rangeEnd: string): Promise<{
     shifts: ExportShiftRow[];
     summaries: ExportDailySummaryRow[];
   } | null> => {
     const { data, error } = await supabase
       .from('shifts')
-      .select('id, chatter_id, date, start_time, end_time, shift_type, status, clocked_in, clocked_out, model, model_id, platform, chatters(name), shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)')
+      .select('id, chatter_id, date, start_time, end_time, status, clocked_in, clocked_out, model, model_id, platform, chatters(name), shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)')
       .gte('date', rangeStart)
       .lte('date', rangeEnd)
       .order('date', { ascending: true })
@@ -144,24 +168,45 @@ export function AdminExportPanel({
     return { shifts, summaries };
   };
 
-  const handleExport = async () => {
+  function validateExportRequest() {
     if (!startDate || !endDate) {
       showToast('error', 'יש להזין תאריך בפורמט DD/MM/YYYY');
-      return;
+      return false;
     }
 
     if (invalidRange) {
       showToast('error', 'טווח תאריכים לא תקין');
-      return;
+      return false;
     }
 
     if (scope === 'chatter' && !selectedChatterId) {
       showToast('warning', 'בחר צ׳אטר לייצוא');
-      return;
+      return false;
     }
 
     if (scope === 'model' && !selectedModelId) {
       showToast('warning', 'בחר מודל לייצוא');
+      return false;
+    }
+
+    return true;
+  }
+
+  const handlePreview = async () => {
+    if (!validateExportRequest() || !startDate || !endDate) {
+      return;
+    }
+
+    setPreviewLoading(true);
+    const rows = await fetchExportRows(startDate, endDate);
+    if (rows) {
+      setPreviewModel(buildExportWorkbookModel({ ...rows, startDate, endDate }));
+    }
+    setPreviewLoading(false);
+  };
+
+  const handleExport = async () => {
+    if (!validateExportRequest() || !startDate || !endDate) {
       return;
     }
 
@@ -253,7 +298,7 @@ export function AdminExportPanel({
           aria-modal="true"
           dir="rtl"
         >
-          <div className="w-full max-w-xl rounded-xl border border-gray-700 bg-gray-900 p-4 space-y-4 text-right">
+          <div className="w-full max-w-5xl rounded-xl border border-gray-700 bg-gray-900 p-4 space-y-4 text-right max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-lg font-semibold text-white">ייצוא משמרות</h4>
               <button
@@ -377,7 +422,188 @@ export function AdminExportPanel({
               <p className="text-xs text-red-400">טווח תאריכים לא תקין</p>
             )}
 
-            <div className="flex justify-end">
+            {previewModel && (
+              <div className="space-y-4 rounded-xl border border-gray-700 bg-gray-950/40 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h5 className="text-sm font-bold text-white">תצוגה מקדימה של הקובץ</h5>
+                  <p className="text-xs text-gray-400">
+                    הערכים והעמודות זהים לייצוא בפועל
+                  </p>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3">
+                    <p className="mb-2 text-xs font-bold text-gray-300">סיכום</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {previewModel.summary.metrics.map((metric) => (
+                        <div key={metric.label} className="rounded-md bg-gray-800/70 p-2">
+                          <p className="text-gray-400">{metric.label}</p>
+                          <p className="mt-1 font-bold text-white">
+                            {formatPreviewValue(metric.value, metric.format)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-gray-300">לפי צ׳אטר</p>
+                      <p className="text-[11px] text-gray-500">
+                        {countLabel(previewModel.summary.chatterRows.length)}
+                      </p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead className="bg-gray-800 text-gray-300">
+                          <tr>
+                            {['צ׳אטר', 'משמרות', 'הושלמו', 'לא הגיע', 'נוכחות', 'הכנסה'].map((header) => (
+                              <th key={header} className="px-2 py-1 text-right font-bold">
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewModel.summary.chatterRows.slice(0, 8).map((row) => (
+                            <tr key={row.chatter} className="border-t border-gray-800 text-gray-100">
+                              <td className="px-2 py-1 font-medium">{row.chatter || '—'}</td>
+                              <td className="px-2 py-1">{row.shifts}</td>
+                              <td className="px-2 py-1">{row.completed}</td>
+                              <td className="px-2 py-1">{row.missed}</td>
+                              <td className="px-2 py-1">
+                                {formatPreviewValue(row.attendanceRate, 'percent')}
+                              </td>
+                              <td className="px-2 py-1 text-left font-mono" dir="ltr">
+                                {formatPreviewValue(row.totalIncome, 'currency')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-gray-300">משמרות</p>
+                    <p className="text-[11px] text-gray-500">
+                      {countLabel(previewModel.shiftRows.length)}
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[900px] text-xs">
+                      <thead className="bg-gray-800 text-gray-300">
+                        <tr>
+                          {['תאריך', 'יום', 'סוג', 'צ׳אטר', 'סטטוס', 'כניסה', 'יציאה', 'מודלים', 'פלטפורמות'].map((header) => (
+                            <th key={header} className="px-2 py-1 text-right font-bold">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewModel.shiftRows.slice(0, 8).map((row, index) => (
+                          <tr key={`${row.date}-${row.chatter}-${index}`} className="border-t border-gray-800 text-gray-100">
+                            <td className="px-2 py-1 whitespace-nowrap">{row.date}</td>
+                            <td className="px-2 py-1">{row.day}</td>
+                            <td className="px-2 py-1">{row.shiftType}</td>
+                            <td className="px-2 py-1 font-medium">{row.chatter || '—'}</td>
+                            <td className="px-2 py-1">{row.status}</td>
+                            <td className="px-2 py-1 font-mono">{row.clockedIn || '—'}</td>
+                            <td className="px-2 py-1 font-mono">{row.clockedOut || '—'}</td>
+                            <td className="px-2 py-1">{row.models}</td>
+                            <td className="px-2 py-1">{row.platforms}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-gray-800 bg-gray-900/70 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-gray-300">סיכומי יום</p>
+                    <p className="text-[11px] text-gray-500">
+                      {countLabel(previewModel.summaryRows.length)}
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-[1200px] text-xs">
+                      <thead className="bg-gray-800 text-gray-300">
+                        <tr>
+                          {[
+                            'תאריך',
+                            'יום',
+                            'צ׳אטר',
+                            'סוג',
+                            'טלגרם',
+                            'OF',
+                            'העברות',
+                            'אחר',
+                            'סה״כ',
+                            'זמינות',
+                            'חובות',
+                            'מכירות',
+                            'אירועים',
+                            'שיפור',
+                            'תוכן',
+                          ].map((header) => (
+                            <th key={header} className="px-2 py-1 text-right font-bold">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewModel.summaryRows.slice(0, 8).map((row, index) => (
+                          <tr key={`${row.date}-${row.chatter}-${index}`} className="border-t border-gray-800 text-gray-100">
+                            <td className="px-2 py-1 whitespace-nowrap">{row.date}</td>
+                            <td className="px-2 py-1">{row.day}</td>
+                            <td className="px-2 py-1 font-medium">{row.chatter || '—'}</td>
+                            <td className="px-2 py-1">{row.shiftType || '—'}</td>
+                            <td className="px-2 py-1 text-left font-mono" dir="ltr">
+                              {formatPreviewValue(row.telegram, 'currency')}
+                            </td>
+                            <td className="px-2 py-1 text-left font-mono" dir="ltr">
+                              {formatPreviewValue(row.onlyfans, 'currency')}
+                            </td>
+                            <td className="px-2 py-1 text-left font-mono" dir="ltr">
+                              {formatPreviewValue(row.transfers, 'currency')}
+                            </td>
+                            <td className="px-2 py-1 text-left font-mono" dir="ltr">
+                              {formatPreviewValue(row.other, 'currency')}
+                            </td>
+                            <td className="px-2 py-1 text-left font-mono font-bold" dir="ltr">
+                              {formatPreviewValue(row.total, 'currency')}
+                            </td>
+                            <td className="px-2 py-1">{row.availability || '—'}</td>
+                            <td className="px-2 py-1">{row.debts || '—'}</td>
+                            <td className="px-2 py-1">{row.pendingSales || '—'}</td>
+                            <td className="px-2 py-1">{row.unusualEvents || '—'}</td>
+                            <td className="px-2 py-1">{row.improvementSuggestions || '—'}</td>
+                            <td className="px-2 py-1">{row.contentRequest || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handlePreview();
+                }}
+                disabled={loading || previewLoading || invalidRange}
+                className="rounded-lg bg-gray-700 px-5 py-2 text-sm font-medium text-white hover:bg-gray-600 disabled:opacity-60"
+              >
+                {previewLoading ? 'טוען תצוגה...' : 'תצוגה מקדימה'}
+              </button>
               <button
                 type="button"
                 onClick={() => {

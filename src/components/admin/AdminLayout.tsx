@@ -8,6 +8,7 @@ import {
   Bell,
   AlertTriangle,
   BarChart3,
+  FileText,
   LogOut,
   Menu,
   X,
@@ -73,6 +74,11 @@ export function AdminLayout({
       label: LABELS.approval,
       icon: <ClipboardCheck size={20} />,
       badge: pendingCount,
+    },
+    {
+      id: 'summaries',
+      label: LABELS.dailySummaries,
+      icon: <FileText size={20} />,
     },
     {
       id: 'chatters',
