@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { Platform, Shift, ShiftAssignment } from './types';
 import { getStatusLabel } from './utils';
-import { getMergedShiftAssignmentLabels, groupShiftBlocks } from './shiftGrouping';
+import { getMergedShiftAssignmentLabels, groupChatterWindowBlocks } from './shiftGrouping';
 
 export type ExportFormat = 'xlsx' | 'csv';
 export type ExportScope = 'all' | 'chatter' | 'model';
@@ -187,7 +187,10 @@ function getPlatformsText(assignments: string[]) {
   const platforms = new Set<string>();
   for (const label of assignments) {
     const parts = label.split(' · ');
-    if (parts[1]) platforms.add(parts[1]);
+    for (const platform of (parts[1] ?? '').split(',')) {
+      const normalized = platform.trim();
+      if (normalized) platforms.add(normalized);
+    }
   }
   return Array.from(platforms).join(', ');
 }
@@ -221,10 +224,11 @@ export function buildExportWorkbookModel({
   shifts,
   summaries,
 }: ExportWorkbookPayload): ExportWorkbookModel {
-  const totalShifts = shifts.length;
-  const completed = shifts.filter((shift) => shift.status === 'completed').length;
-  const missed = shifts.filter((shift) => shift.status === 'missed').length;
-  const pending = shifts.filter((shift) => shift.status === 'pending').length;
+  const shiftBlocks = groupChatterWindowBlocks(shifts);
+  const totalShifts = shiftBlocks.length;
+  const completed = shiftBlocks.filter((block) => block.status === 'completed').length;
+  const missed = shiftBlocks.filter((block) => block.status === 'missed').length;
+  const pending = shiftBlocks.filter((block) => block.status === 'pending').length;
   const attendedTotal = completed + missed;
   const attendanceRate = attendedTotal > 0 ? completed / attendedTotal : 0;
 
@@ -237,8 +241,9 @@ export function buildExportWorkbookModel({
   }
 
   const chatterMap = new Map<string, ChatterSummaryRow>();
-  for (const shift of shifts) {
-    const row = chatterMap.get(shift.chatter_id) ?? {
+  for (const block of shiftBlocks) {
+    const shift = block.shift;
+    const row = chatterMap.get(block.chatterId) ?? {
       chatter: getChatterName(shift.chatters),
       shifts: 0,
       completed: 0,
@@ -247,27 +252,27 @@ export function buildExportWorkbookModel({
       totalIncome: 0,
     };
     row.shifts += 1;
-    if (shift.status === 'completed') row.completed += 1;
-    if (shift.status === 'missed') row.missed += 1;
-    row.totalIncome = incomeByChatter.get(shift.chatter_id) ?? 0;
+    if (block.status === 'completed') row.completed += 1;
+    if (block.status === 'missed') row.missed += 1;
+    row.totalIncome = incomeByChatter.get(block.chatterId) ?? 0;
     const tracked = row.completed + row.missed;
     row.attendanceRate = tracked > 0 ? row.completed / tracked : null;
-    chatterMap.set(shift.chatter_id, row);
+    chatterMap.set(block.chatterId, row);
   }
 
-  const shiftRows = shifts.map((shift) => {
-    const [block] = groupShiftBlocks([shift]);
+  const shiftRows = shiftBlocks.map((block) => {
+    const shift = block.shift;
     const assignmentLabels = getMergedShiftAssignmentLabels(block);
     return {
       date: formatDisplayDate(shift.date),
       day: getDayName(shift.date),
       shiftType: getShiftTypeLabel(shift),
       chatter: getChatterName(shift.chatters),
-      status: getStatusLabel(shift.status),
-      rawStatus: shift.status,
+      status: getStatusLabel(block.status),
+      rawStatus: block.status,
       clockedIn: formatTimestampTime(shift.clocked_in),
       clockedOut: formatTimestampTime(shift.clocked_out),
-      models: assignmentLabels.join(', '),
+      models: assignmentLabels.join('\n'),
       platforms: getPlatformsText(assignmentLabels),
     };
   });
@@ -324,7 +329,10 @@ function getColumnWidths(rows: Array<Array<string | number | null>>) {
   return Array.from({ length: count }, (_, index) => {
     const maxLength = rows.reduce((max, row) => {
       const value = row[index];
-      return Math.max(max, value == null ? 0 : String(value).length);
+      const length = value == null
+        ? 0
+        : Math.max(...String(value).split('\n').map((line) => line.length));
+      return Math.max(max, length);
     }, 0);
     return { wch: clamp(maxLength + 3, 8, 40) };
   });
@@ -437,6 +445,12 @@ function buildShiftsSheet(model: ExportWorkbookModel) {
     styleCell(ws, index + 1, 4, {
       fill: { fgColor: { rgb: STATUS_FILLS[row.rawStatus] } },
       alignment: RTL_ALIGNMENT,
+    });
+    styleCell(ws, index + 1, 7, {
+      alignment: { ...RTL_ALIGNMENT, wrapText: true },
+    });
+    styleCell(ws, index + 1, 8, {
+      alignment: { ...RTL_ALIGNMENT, wrapText: true },
     });
   });
 

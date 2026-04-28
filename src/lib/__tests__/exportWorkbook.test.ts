@@ -120,9 +120,76 @@ describe('exportWorkbook', () => {
     expect(model.summary.chatterRows[0].totalIncome).toBe(375);
     expect(model.shiftRows[0].date).toBe('26/04/2026');
     expect(model.shiftRows[0].day).toBe('ראשון');
-    expect(model.shiftRows[0].models).toBe('Lina · טלגרם, Maya · אונליפאנס');
+    expect(model.shiftRows[0].models).toBe('Lina · טלגרם\nMaya · אונליפאנס');
     expect(model.shiftRows[1].models).toBe('ללא הקצאה');
     expect(model.summaryRows[0].total).toBe(375);
+  });
+
+  it('exports one row per chatter window with grouped model platforms', () => {
+    const duplicateWindowShifts: ExportShiftRow[] = [
+      {
+        id: 'shift-tamar-telegram',
+        chatter_id: 'chatter-ziv',
+        date: '2026-04-26',
+        start_time: '12:00',
+        end_time: '19:00',
+        shift_type: 'morning',
+        status: 'scheduled',
+        clocked_in: null,
+        clocked_out: null,
+        model: 'תמר',
+        model_id: 'model-tamar',
+        platform: 'telegram',
+        chatters: { name: 'זיו' },
+        shift_assignments: [],
+      },
+      {
+        id: 'shift-tamar-onlyfans',
+        chatter_id: 'chatter-ziv',
+        date: '2026-04-26',
+        start_time: '12:00',
+        end_time: '19:00',
+        shift_type: 'morning',
+        status: 'scheduled',
+        clocked_in: null,
+        clocked_out: null,
+        model: 'תמר',
+        model_id: 'model-tamar',
+        platform: 'onlyfans',
+        chatters: { name: 'זיו' },
+        shift_assignments: [],
+      },
+      {
+        id: 'shift-dana-telegram',
+        chatter_id: 'chatter-ziv',
+        date: '2026-04-26',
+        start_time: '12:00',
+        end_time: '19:00',
+        shift_type: 'morning',
+        status: 'scheduled',
+        clocked_in: null,
+        clocked_out: null,
+        model: 'דנה',
+        model_id: 'model-dana',
+        platform: 'telegram',
+        chatters: { name: 'זיו' },
+        shift_assignments: [],
+      },
+    ];
+
+    const model = buildExportWorkbookModel({
+      shifts: duplicateWindowShifts,
+      summaries: [],
+      startDate: '2026-04-26',
+      endDate: '2026-05-02',
+    });
+
+    expect(model.summary.metrics[0]).toEqual({ label: 'סך משמרות', value: 1 });
+    expect(model.summary.chatterRows[0].shifts).toBe(1);
+    expect(model.shiftRows).toHaveLength(1);
+    expect(model.shiftRows[0].chatter).toBe('זיו');
+    expect(model.shiftRows[0].models).toBe('תמר · טלגרם, אונליפאנס\nדנה · טלגרם');
+    expect(model.shiftRows[0].platforms).toBe('טלגרם, אונליפאנס');
   });
 
   it('derives shift type from start time when the database row has no shift_type column', () => {

@@ -513,8 +513,8 @@ export function AdminExportPanel({
                             <td className="px-2 py-1">{row.status}</td>
                             <td className="px-2 py-1 font-mono">{row.clockedIn || '—'}</td>
                             <td className="px-2 py-1 font-mono">{row.clockedOut || '—'}</td>
-                            <td className="px-2 py-1">{row.models}</td>
-                            <td className="px-2 py-1">{row.platforms}</td>
+                            <td className="px-2 py-1 whitespace-pre-line">{row.models}</td>
+                            <td className="px-2 py-1 whitespace-pre-line">{row.platforms}</td>
                           </tr>
                         ))}
                       </tbody>
