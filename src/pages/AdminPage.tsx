@@ -22,6 +22,9 @@ import { ToastContainer } from '../components/shared/ToastContainer';
 import type { Platform, Shift, ShiftWithChatter } from '../lib/types';
 import { LABELS, getWeekDates } from '../lib/utils';
 import { SUPABASE_URL, supabase } from '../lib/supabase';
+import { isAdminPreviewMode } from '../lib/previewMode';
+
+type AdminPreviewData = typeof import('../lib/adminPreviewData');
 
 // ─── Form data type that ShiftEditor returns via onSave ───────────────────────
 
@@ -69,6 +72,8 @@ type Tab =
 
 export function AdminPage() {
   const navigate = useNavigate();
+  const previewMode = isAdminPreviewMode();
+  const [previewData, setPreviewData] = useState<AdminPreviewData | null>(null);
   const { user, profile, loading: authLoading, signOut } = useAdminAuth();
   const { shifts, loading: shiftsLoading, fetchShifts, createShift, updateShift, deleteShift } = useShifts();
   const {
@@ -80,7 +85,7 @@ export function AdminPage() {
   const { models, createModel, toggleModelActive, deleteModel } = useModels();
   const { toasts, showToast, dismissToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>(previewMode ? 'schedule' : 'dashboard');
 
   // Schedule tab state
   const [weekOffset, setWeekOffset] = useState(0);
@@ -89,11 +94,48 @@ export function AdminPage() {
   const [editorShiftType, setEditorShiftType] = useState<'morning' | 'evening'>('morning');
   const [showEditor, setShowEditor] = useState(false);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || !previewMode) {
+      setPreviewData(null);
+      return;
+    }
+
+    let mounted = true;
+    void import('../lib/adminPreviewData').then((data) => {
+      if (mounted) setPreviewData(data);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [previewMode]);
+
   // Unresolved error count for badge
   const unresolvedErrorCount = 0;
+  const previewLoading = previewMode && !previewData;
+  const visibleUser = previewMode
+    ? previewData
+      ? ({ id: previewData.previewAdminProfile.id } as typeof user)
+      : null
+    : user;
+  const visibleProfile = previewMode ? (previewData?.previewAdminProfile ?? null) : profile;
+  const visibleShifts = useMemo(
+    () => (previewMode ? (previewData?.previewShifts ?? []) : shifts),
+    [previewData, previewMode, shifts]
+  );
+  const visibleChatters = useMemo(
+    () => (previewMode ? (previewData?.previewChatters ?? []) : chatters),
+    [chatters, previewData, previewMode]
+  );
+  const visibleModels = useMemo(
+    () => (previewMode ? (previewData?.previewModels ?? []) : models),
+    [models, previewData, previewMode]
+  );
+  const visibleShiftsLoading = previewMode ? previewLoading : shiftsLoading;
+  const visibleChattersLoading = previewMode ? previewLoading : chattersLoading;
   const pendingCount = useMemo(
-    () => shifts.filter((shift) => shift.status === 'pending').length,
-    [shifts]
+    () => visibleShifts.filter((shift) => shift.status === 'pending').length,
+    [visibleShifts]
   );
   const dashboardStats = useMemo(() => {
     const now = new Date();
@@ -102,15 +144,15 @@ export function AdminPage() {
     thirtyDaysAgoDate.setDate(now.getDate() - 30);
     const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().split('T')[0];
 
-    const totalChatters = chatters.filter((chatter) => chatter.active).length;
-    const currentlyOnShift = shifts.filter(
+    const totalChatters = visibleChatters.filter((chatter) => chatter.active).length;
+    const currentlyOnShift = visibleShifts.filter(
       (shift) => shift.date === today && shift.status === 'active'
     ).length;
-    const todayShifts = shifts.filter(
+    const todayShifts = visibleShifts.filter(
       (shift) => shift.date === today && ['scheduled', 'active', 'completed'].includes(shift.status)
     ).length;
 
-    const trackedWindow = shifts.filter((shift) => shift.date >= thirtyDaysAgo);
+    const trackedWindow = visibleShifts.filter((shift) => shift.date >= thirtyDaysAgo);
     const completed = trackedWindow.filter((shift) => shift.status === 'completed').length;
     const missed = trackedWindow.filter((shift) => shift.status === 'missed').length;
     const trackedTotal = completed + missed;
@@ -123,22 +165,32 @@ export function AdminPage() {
       missRate: trackedTotal > 0 ? Math.round((missed / trackedTotal) * 100) : 0,
       pendingApprovals: pendingCount,
     };
-  }, [chatters, shifts, pendingCount]);
+  }, [visibleChatters, visibleShifts, pendingCount]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!authLoading && !user) {
+    if (!previewMode && !authLoading && !user) {
       navigate('/login', { replace: true });
     }
-  }, [user, authLoading, navigate]);
+  }, [previewMode, user, authLoading, navigate]);
 
   const handleLogout = useCallback(async () => {
+    if (previewMode) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
     await signOut();
     navigate('/login', { replace: true });
-  }, [signOut, navigate]);
+  }, [previewMode, signOut, navigate]);
 
   const handleBroadcastMessage = useCallback(
     async (message: string): Promise<{ sent: number; failed: number; total_recipients: number }> => {
+      if (previewMode) {
+        void message;
+        return { sent: 2, failed: 0, total_recipients: 2 };
+      }
+
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
 
@@ -167,7 +219,7 @@ export function AdminPage() {
         total_recipients: Number(result.total_recipients ?? 0),
       };
     },
-    []
+    [previewMode]
   );
 
   // ── Schedule callbacks ──────────────────────────────────────────────────────
@@ -320,7 +372,7 @@ export function AdminPage() {
       }
 
       const modelIdByName = new Map(
-        models.map((model) => [model.name.trim().toLowerCase(), model.id])
+        visibleModels.map((model) => [model.name.trim().toLowerCase(), model.id])
       );
 
       const rowsToDelete = (windowRows ?? [])
@@ -371,7 +423,7 @@ export function AdminPage() {
       showToast('success', editingShift ? LABELS.shiftUpdated : LABELS.shiftAdded);
       closeEditor();
     },
-    [editingShift, createShift, updateShift, showToast, closeEditor, models, fetchShifts]
+    [editingShift, createShift, updateShift, showToast, closeEditor, visibleModels, fetchShifts]
   );
 
   const handleDeleteShift = useCallback(async () => {
@@ -406,7 +458,7 @@ export function AdminPage() {
 
   // ── Loading / auth guard ────────────────────────────────────────────────────
 
-  if (authLoading) {
+  if (previewLoading || (!previewMode && authLoading)) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <LoadingSpinner />
@@ -414,14 +466,14 @@ export function AdminPage() {
     );
   }
 
-  if (!user) return null;
+  if (!visibleUser) return null;
 
   // ── Tab content ─────────────────────────────────────────────────────────────
 
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return shiftsLoading || chattersLoading ? (
+        return visibleShiftsLoading || visibleChattersLoading ? (
           <LoadingSpinner />
         ) : (
           <div className="p-4 sm:p-6">
@@ -429,29 +481,40 @@ export function AdminPage() {
               stats={dashboardStats}
               onPendingApprovalsClick={() => setActiveTab('approval')}
             />
-            <MonthlyGoalsSection chatters={chatters} showToast={showToast} />
-            <AdminExportPanel showToast={showToast} />
+            <MonthlyGoalsSection chatters={visibleChatters} showToast={showToast} />
+            <AdminExportPanel showToast={showToast} chatters={visibleChatters} models={visibleModels} />
           </div>
         );
 
       case 'schedule':
         return (
-          <WeeklyGrid
-            shifts={shifts as ShiftWithChatter[]}
-            models={models.filter((model) => model.active)}
-            weekOffset={weekOffset}
-            onWeekChange={setWeekOffset}
-            onAddShift={openAddShift}
-            onEditShift={openEditShift}
-            showToast={showToast}
-          />
+          <>
+            <div className="flex justify-end px-4 pt-4 sm:px-6 sm:pt-6" dir="rtl">
+              <AdminExportPanel
+                showToast={showToast}
+                chatters={visibleChatters}
+                models={visibleModels}
+                variant="button"
+              />
+            </div>
+            <WeeklyGrid
+              shifts={visibleShifts as ShiftWithChatter[]}
+              models={visibleModels.filter((model) => model.active)}
+              weekOffset={weekOffset}
+              onWeekChange={setWeekOffset}
+              onAddShift={openAddShift}
+              onEditShift={openEditShift}
+              onOpenApproval={() => setActiveTab('approval')}
+              showToast={showToast}
+            />
+          </>
         );
 
       case 'approval':
         return (
           <AdminApproval
-            models={models.filter((m) => m.active)}
-            shifts={shifts}
+            models={visibleModels.filter((m) => m.active)}
+            shifts={visibleShifts}
             showToast={showToast}
             onRefreshShifts={fetchShifts}
           />
@@ -460,7 +523,7 @@ export function AdminPage() {
       case 'chatters':
         return (
           <ChatterManager
-            chatters={chatters}
+            chatters={visibleChatters}
             onAdd={handleAddChatter}
             onDelete={handleDeleteChatter}
           />
@@ -469,7 +532,7 @@ export function AdminPage() {
       case 'models':
         return (
           <ModelManager
-            models={models}
+            models={visibleModels}
             onCreateModel={createModel}
             onToggleActive={toggleModelActive}
             onDeleteModel={deleteModel}
@@ -500,7 +563,7 @@ export function AdminPage() {
         showToast={showToast}
         errorCount={unresolvedErrorCount}
         pendingCount={pendingCount}
-        adminName={profile?.display_name ?? profile?.email ?? null}
+        adminName={visibleProfile?.display_name ?? visibleProfile?.email ?? null}
       >
         {renderContent()}
       </AdminLayout>
@@ -508,12 +571,12 @@ export function AdminPage() {
       {showEditor && (
         <ShiftEditor
           shift={editingShift}
-          chatters={chatters}
-          models={models}
+          chatters={visibleChatters}
+          models={visibleModels}
           date={editorDate}
           shiftType={editorShiftType}
           availableDates={getWeekDates(weekOffset)}
-          existingShifts={shifts as Shift[]}
+          existingShifts={visibleShifts as Shift[]}
           onSave={handleSaveShift}
           onDelete={editingShift ? handleDeleteShift : undefined}
           onClose={closeEditor}

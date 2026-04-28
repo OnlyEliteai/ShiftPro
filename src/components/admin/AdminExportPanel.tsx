@@ -1,104 +1,113 @@
-﻿import { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import type { Platform } from '../../lib/types';
+import type { Chatter, Model } from '../../lib/types';
 import { toCsv, triggerDownload } from '../../lib/exportCsv';
+import {
+  buildExportWorkbookModel,
+  createShiftWorkbookBlob,
+  getCurrentWeekDateRange,
+  getExportFilename,
+  type ExportDailySummaryRow,
+  type ExportFormat,
+  type ExportScope,
+  type ExportShiftRow,
+} from '../../lib/exportWorkbook';
 
 interface AdminExportPanelProps {
   showToast: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void;
+  chatters?: Chatter[];
+  models?: Model[];
+  variant?: 'section' | 'button';
 }
 
-type ChatterRelation = { name: string } | { name: string }[] | null;
-
-interface ShiftExportRow {
-  date: string;
-  start_time: string;
-  end_time: string;
-  shift_type: 'morning' | 'evening' | null;
-  status: string;
-  clocked_in: string | null;
-  clocked_out: string | null;
-  model: string | null;
-  platform: Platform | null;
-  chatters: ChatterRelation;
+function getAssignmentModelIds(row: ExportShiftRow) {
+  const ids = new Set<string>();
+  if (row.model_id) ids.add(row.model_id);
+  for (const assignment of row.shift_assignments ?? []) {
+    if (assignment.model_id) ids.add(assignment.model_id);
+  }
+  return ids;
 }
 
-interface SummaryExportRow {
-  date: string;
-  shift_type: string;
-  income_onlyfans: number | null;
-  income_telegram: number | null;
-  income_transfers: number | null;
-  income_other: number | null;
-  income_total: number | null;
-  availability_status: string | null;
-  improvement_suggestions: string | null;
-  chatters: ChatterRelation;
+function getAssignmentModelNames(row: ExportShiftRow) {
+  const names = new Set<string>();
+  if (row.model) names.add(row.model.trim().toLowerCase());
+  for (const assignment of row.shift_assignments ?? []) {
+    names.add(assignment.model.trim().toLowerCase());
+  }
+  return names;
 }
 
-interface CachedRange<T> {
-  startDate: string;
-  endDate: string;
-  rows: T[];
+function rowMatchesModel(row: ExportShiftRow, model: Model | undefined) {
+  if (!model) return false;
+  return (
+    getAssignmentModelIds(row).has(model.id) ||
+    getAssignmentModelNames(row).has(model.name.trim().toLowerCase())
+  );
 }
 
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
+function summaryMatchesModel(row: ExportDailySummaryRow, model: Model | undefined) {
+  if (!model) return false;
+  const modelName = model.name.trim().toLowerCase();
+  return (row.model_platform_assignments ?? []).some(
+    (assignment) => assignment.model_name.trim().toLowerCase() === modelName
+  );
 }
 
-function formatInputDate(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+function formatDateInput(value: string) {
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
 }
 
-function getDefaultDateRange() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return {
-    startDate: formatInputDate(start),
-    endDate: formatInputDate(end),
-  };
+function parseDateInput(value: string) {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00`);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() + 1 !== Number(month) ||
+    date.getDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
-function getChatterName(chatters: ChatterRelation): string {
-  if (!chatters) return '';
-  if (Array.isArray(chatters)) return chatters[0]?.name ?? '';
-  return chatters.name ?? '';
-}
-
-function withinRange(itemDate: string, startDate: string, endDate: string) {
-  return itemDate >= startDate && itemDate <= endDate;
-}
-
-function canUseCache<T>(cache: CachedRange<T> | null, startDate: string, endDate: string) {
-  if (!cache) return false;
-  return startDate >= cache.startDate && endDate <= cache.endDate;
-}
-
-function filename(prefix: string, startDate: string, endDate: string) {
-  return `${prefix}_${startDate}_to_${endDate}.csv`;
-}
-
-export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
-  const defaults = useMemo(() => getDefaultDateRange(), []);
+export function AdminExportPanel({
+  showToast,
+  chatters = [],
+  models = [],
+  variant = 'section',
+}: AdminExportPanelProps) {
+  const defaults = useMemo(() => getCurrentWeekDateRange(), []);
   const [open, setOpen] = useState(false);
-  const [startDate, setStartDate] = useState(defaults.startDate);
-  const [endDate, setEndDate] = useState(defaults.endDate);
-  const [loading, setLoading] = useState<'shifts' | 'summaries' | null>(null);
-  const [shiftCache, setShiftCache] = useState<CachedRange<ShiftExportRow> | null>(null);
-  const [summaryCache, setSummaryCache] = useState<CachedRange<SummaryExportRow> | null>(null);
+  const [startDateInput, setStartDateInput] = useState(formatDateInput(defaults.startDate));
+  const [endDateInput, setEndDateInput] = useState(formatDateInput(defaults.endDate));
+  const [format, setFormat] = useState<ExportFormat>('xlsx');
+  const [scope, setScope] = useState<ExportScope>('all');
+  const [selectedChatterId, setSelectedChatterId] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const invalidRange = startDate > endDate;
+  const startDate = parseDateInput(startDateInput);
+  const endDate = parseDateInput(endDateInput);
+  const invalidDateInput = !startDate || !endDate;
+  const invalidRange = invalidDateInput || startDate > endDate;
+  const selectedModel = models.find((model) => model.id === selectedModelId);
 
-  const fetchShiftRows = async (): Promise<ShiftExportRow[] | null> => {
-    if (shiftCache && canUseCache(shiftCache, startDate, endDate)) {
-      return shiftCache.rows.filter((row) => withinRange(row.date, startDate, endDate));
-    }
-
+  const fetchExportRows = async (rangeStart: string, rangeEnd: string): Promise<{
+    shifts: ExportShiftRow[];
+    summaries: ExportDailySummaryRow[];
+  } | null> => {
     const { data, error } = await supabase
       .from('shifts')
-      .select('date, start_time, end_time, shift_type, status, clocked_in, clocked_out, model, platform, chatters(name)')
-      .gte('date', startDate)
-      .lte('date', endDate)
+      .select('id, chatter_id, date, start_time, end_time, shift_type, status, clocked_in, clocked_out, model, model_id, platform, chatters(name), shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)')
+      .gte('date', rangeStart)
+      .lte('date', rangeEnd)
       .order('date', { ascending: true })
       .order('start_time', { ascending: true });
 
@@ -107,178 +116,282 @@ export function AdminExportPanel({ showToast }: AdminExportPanelProps) {
       return null;
     }
 
-    const rows = (data ?? []) as ShiftExportRow[];
-    setShiftCache({ startDate, endDate, rows });
-    return rows;
-  };
-
-  const fetchSummaryRows = async (): Promise<SummaryExportRow[] | null> => {
-    if (summaryCache && canUseCache(summaryCache, startDate, endDate)) {
-      return summaryCache.rows.filter((row) => withinRange(row.date, startDate, endDate));
-    }
-
-    const { data, error } = await supabase
+    const { data: summaryData, error: summaryError } = await supabase
       .from('daily_summaries')
-      .select('date, shift_type, income_onlyfans, income_telegram, income_transfers, income_other, income_total, availability_status, improvement_suggestions, chatters(name)')
-      .gte('date', startDate)
-      .lte('date', endDate)
+      .select('id, chatter_id, shift_id, date, shift_type, model_platform_assignments, income_onlyfans, income_telegram, income_transfers, income_other, income_total, availability_status, availability_gaps_detail, has_debts, debts_detail, has_pending_sales, pending_sales_detail, has_unusual_events, unusual_events_detail, improvement_suggestions, content_request, self_improvement_point, self_preservation_point, chatters(name)')
+      .gte('date', rangeStart)
+      .lte('date', rangeEnd)
       .order('date', { ascending: true });
 
-    if (error) {
+    if (summaryError) {
       showToast('error', 'שגיאה בייצוא סיכומים');
       return null;
     }
 
-    const rows = (data ?? []) as SummaryExportRow[];
-    setSummaryCache({ startDate, endDate, rows });
-    return rows;
+    let shifts = (data ?? []) as unknown as ExportShiftRow[];
+    let summaries = (summaryData ?? []) as unknown as ExportDailySummaryRow[];
+
+    if (scope === 'chatter') {
+      shifts = shifts.filter((row) => row.chatter_id === selectedChatterId);
+      summaries = summaries.filter((row) => row.chatter_id === selectedChatterId);
+    }
+
+    if (scope === 'model') {
+      shifts = shifts.filter((row) => rowMatchesModel(row, selectedModel));
+      summaries = summaries.filter((row) => summaryMatchesModel(row, selectedModel));
+    }
+
+    return { shifts, summaries };
   };
 
-  const exportShifts = async () => {
+  const handleExport = async () => {
+    if (!startDate || !endDate) {
+      showToast('error', 'יש להזין תאריך בפורמט DD/MM/YYYY');
+      return;
+    }
+
     if (invalidRange) {
       showToast('error', 'טווח תאריכים לא תקין');
       return;
     }
 
-    setLoading('shifts');
-    const rows = await fetchShiftRows();
-    if (!rows) {
-      setLoading(null);
+    if (scope === 'chatter' && !selectedChatterId) {
+      showToast('warning', 'בחר צ׳אטר לייצוא');
       return;
     }
 
-    const csvRows = rows.map((row) => [
-      row.date,
-      getChatterName(row.chatters),
-      row.shift_type ?? '',
-      row.start_time,
-      row.end_time,
-      row.model ?? '',
-      row.platform ?? '',
-      row.status,
-      row.clocked_in ?? '',
-      row.clocked_out ?? '',
-    ]);
+    if (scope === 'model' && !selectedModelId) {
+      showToast('warning', 'בחר מודל לייצוא');
+      return;
+    }
 
-    const blob = toCsv(
-      ['תאריך', 'שם צ׳אטר', 'סוג משמרת', 'שעת התחלה', 'שעת סיום', 'מודל', 'פלטפורמה', 'סטטוס', 'כניסה בפועל', 'יציאה בפועל'],
-      csvRows
-    );
+    setLoading(true);
+    const rows = await fetchExportRows(startDate, endDate);
+    if (!rows) {
+      setLoading(false);
+      return;
+    }
 
-    triggerDownload(blob, filename('shifts', startDate, endDate));
-    showToast('success', 'ייצוא משמרות הושלם');
-    setLoading(null);
+    try {
+      if (format === 'csv') {
+        const workbookModel = buildExportWorkbookModel({
+          ...rows,
+          startDate,
+          endDate,
+        });
+        const csvRows = workbookModel.shiftRows.map((row) => [
+          row.date,
+          row.day,
+          row.shiftType,
+          row.chatter,
+          row.status,
+          row.clockedIn,
+          row.clockedOut,
+          row.models,
+          row.platforms,
+        ]);
+        const blob = toCsv(
+          ['תאריך', 'יום', 'סוג משמרת', 'צ׳אטר', 'סטטוס', 'שעת כניסה', 'שעת יציאה', 'מודלים', 'פלטפורמות'],
+          csvRows
+        );
+        triggerDownload(blob, getExportFilename('csv', startDate, endDate));
+      } else {
+        const useWorker = rows.shifts.length + rows.summaries.length > 500;
+        const blob = await createShiftWorkbookBlob(
+          {
+            ...rows,
+            startDate,
+            endDate,
+          },
+          useWorker
+        );
+        triggerDownload(blob, getExportFilename('xlsx', startDate, endDate));
+      }
+
+      showToast('success', 'ייצוא משמרות הושלם');
+      setOpen(false);
+    } catch {
+      showToast('error', 'שגיאה ביצירת הקובץ');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const exportSummaries = async () => {
-    if (invalidRange) {
-      showToast('error', 'טווח תאריכים לא תקין');
-      return;
-    }
-
-    setLoading('summaries');
-    const rows = await fetchSummaryRows();
-    if (!rows) {
-      setLoading(null);
-      return;
-    }
-
-    const csvRows = rows.map((row) => [
-      row.date,
-      getChatterName(row.chatters),
-      row.shift_type ?? '',
-      Number(row.income_onlyfans ?? 0),
-      Number(row.income_telegram ?? 0),
-      Number(row.income_transfers ?? 0),
-      Number(row.income_other ?? 0),
-      Number(row.income_total ?? 0),
-      row.availability_status ?? '',
-      row.improvement_suggestions ?? '',
-    ]);
-
-    const blob = toCsv(
-      ['תאריך', 'שם צ׳אטר', 'סוג משמרת', 'OnlyFans', 'Telegram', 'העברות', 'אחר', 'סה״כ', 'סטטוס זמינות', 'הערות'],
-      csvRows
-    );
-
-    triggerDownload(blob, filename('summaries', startDate, endDate));
-    showToast('success', 'ייצוא סיכומים הושלם');
-    setLoading(null);
-  };
+  const triggerButton = (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      disabled={loading}
+      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+    >
+      {loading ? 'מייצא...' : 'ייצוא משמרות'}
+    </button>
+  );
 
   return (
-    <section className="mt-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-white">ייצוא נתונים</h3>
-          <p className="text-xs text-gray-400 mt-1">קובצי CSV עם תאימות Excel מלאה</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
-        >
-          ייצוא נתונים
-        </button>
-      </div>
+    <>
+      {variant === 'section' ? (
+        <section className="mt-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-white">ייצוא נתונים</h3>
+              <p className="text-xs text-gray-400 mt-1">
+                קובץ XLSX קריא בעברית, עם CSV כגיבוי
+              </p>
+            </div>
+            {triggerButton}
+          </div>
+        </section>
+      ) : (
+        triggerButton
+      )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-xl rounded-xl border border-gray-700 bg-gray-900 p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="text-lg font-semibold text-white">ייצוא נתונים</h4>
-              <button type="button" onClick={() => setOpen(false)} className="text-sm text-gray-300">סגור</button>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          dir="rtl"
+        >
+          <div className="w-full max-w-xl rounded-xl border border-gray-700 bg-gray-900 p-4 space-y-4 text-right">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-lg font-semibold text-white">ייצוא משמרות</h4>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-sm text-gray-300"
+              >
+                סגור
+              </button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-sm text-gray-300">
                 מתאריך
                 <input
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
-                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                  type="text"
+                  inputMode="numeric"
+                  value={startDateInput}
+                  onChange={(event) => setStartDateInput(event.target.value)}
+                  placeholder="DD/MM/YYYY"
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-left text-white"
+                  dir="ltr"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm text-gray-300">
                 עד תאריך
                 <input
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
-                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                  type="text"
+                  inputMode="numeric"
+                  value={endDateInput}
+                  onChange={(event) => setEndDateInput(event.target.value)}
+                  placeholder="DD/MM/YYYY"
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-left text-white"
+                  dir="ltr"
                 />
               </label>
             </div>
 
-            {invalidRange && <p className="text-xs text-red-400">טווח תאריכים לא תקין</p>}
+            <div>
+              <p className="mb-2 text-sm font-medium text-gray-300">פורמט</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(['xlsx', 'csv'] as const).map((option) => (
+                  <label
+                    key={option}
+                    className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+                  >
+                    <input
+                      type="radio"
+                      checked={format === option}
+                      onChange={() => setFormat(option)}
+                    />
+                    <span>{option.toUpperCase()}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div>
+              <p className="mb-2 text-sm font-medium text-gray-300">היקף</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {[
+                  { value: 'all', label: 'כל המשמרות' },
+                  { value: 'chatter', label: 'לפי צ׳אטר' },
+                  { value: 'model', label: 'לפי מודל' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+                  >
+                    <input
+                      type="radio"
+                      checked={scope === option.value}
+                      onChange={() => setScope(option.value as ExportScope)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {scope === 'chatter' && (
+              <label className="flex flex-col gap-1 text-sm text-gray-300">
+                צ׳אטר
+                <select
+                  value={selectedChatterId}
+                  onChange={(event) => setSelectedChatterId(event.target.value)}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                >
+                  <option value="">בחר צ׳אטר</option>
+                  {chatters.map((chatter) => (
+                    <option key={chatter.id} value={chatter.id}>
+                      {chatter.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {scope === 'model' && (
+              <label className="flex flex-col gap-1 text-sm text-gray-300">
+                מודל
+                <select
+                  value={selectedModelId}
+                  onChange={(event) => setSelectedModelId(event.target.value)}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white"
+                >
+                  <option value="">בחר מודל</option>
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {invalidDateInput && (
+              <p className="text-xs text-red-400">יש להזין תאריך בפורמט DD/MM/YYYY</p>
+            )}
+            {!invalidDateInput && invalidRange && (
+              <p className="text-xs text-red-400">טווח תאריכים לא תקין</p>
+            )}
+
+            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => {
-                  void exportShifts();
+                  void handleExport();
                 }}
-                disabled={loading !== null || invalidRange}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
+                disabled={loading || invalidRange}
+                className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
               >
-                {loading === 'shifts' ? 'מייצא...' : 'ייצוא משמרות'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  void exportSummaries();
-                }}
-                disabled={loading !== null || invalidRange}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-60"
-              >
-                {loading === 'summaries' ? 'מייצא...' : 'ייצוא סיכומים'}
+                {loading ? 'מייצא...' : 'ייצוא'}
               </button>
             </div>
           </div>
         </div>
       )}
-    </section>
+    </>
   );
 }

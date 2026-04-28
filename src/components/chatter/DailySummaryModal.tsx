@@ -10,6 +10,7 @@ interface DailySummaryModalProps {
   chatterId: string;
   token: string;
   models: Model[];
+  previewSubmit?: boolean;
   successMessage?: string;
   onClose: () => void;
   onSubmitted: () => Promise<void> | void;
@@ -53,6 +54,7 @@ export function DailySummaryModal({
   chatterId,
   token,
   models,
+  previewSubmit = false,
   successMessage = 'הסיכום נשלח בהצלחה!',
   onClose,
   onSubmitted,
@@ -98,11 +100,22 @@ export function DailySummaryModal({
 
     const next = buildInitialAssignments(models);
     for (const row of windowShifts?.length ? windowShifts : [shift]) {
-      if (!row.model || !row.platform) continue;
-      const modelId = modelIdByName.get(row.model.trim().toLowerCase()) ?? null;
-      if (!modelId || !next[modelId]) continue;
-      if (row.platform === 'telegram') next[modelId].telegram = true;
-      if (row.platform === 'onlyfans') next[modelId].onlyfans = true;
+      const rowAssignments =
+        row.shift_assignments && row.shift_assignments.length > 0
+          ? row.shift_assignments
+          : row.model && row.platform
+            ? [{ model: row.model, model_id: row.model_id, platform: row.platform }]
+            : [];
+
+      for (const assignment of rowAssignments) {
+        const modelId =
+          assignment.model_id ??
+          modelIdByName.get(assignment.model.trim().toLowerCase()) ??
+          null;
+        if (!modelId || !next[modelId]) continue;
+        if (assignment.platform === 'telegram') next[modelId].telegram = true;
+        if (assignment.platform === 'onlyfans') next[modelId].onlyfans = true;
+      }
     }
 
     Promise.resolve().then(() => {
@@ -210,6 +223,15 @@ export function DailySummaryModal({
     if (submitting || submitted) return;
     if (!validateCurrentStep()) return;
     setSubmitting(true);
+
+    if (previewSubmit) {
+      setSubmitted(true);
+      setError(null);
+      showToast('success', successMessage);
+      setSubmitting(false);
+      await onSubmitted();
+      return;
+    }
 
     const dayOfWeek = getDayOfWeekHebrew(shift.date);
     const shiftType = getShiftType(shift.start_time);

@@ -4,15 +4,28 @@ import { useChatterAuth } from '../hooks/useChatterAuth';
 import { ChatterLayout } from '../components/chatter/ChatterLayout';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
-import { LABELS, formatTime, cn, getPlatformLabel } from '../lib/utils';
+import { LABELS, formatTime, cn } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
 import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
-import type { Model, Platform, Shift, ShiftAssignment, ShiftSlot, ShiftWithChatter } from '../lib/types';
+import type { Model, Shift, ShiftSlot, ShiftWithChatter } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
+import {
+  getMergedShiftAssignmentGroups,
+  groupMergedShiftAssignments,
+  groupShiftBlocks,
+  type MergedShiftAssignment,
+  type MergedShiftAssignmentGroup,
+} from '../lib/shiftGrouping';
+import { isChatterPreviewMode } from '../lib/previewMode';
+
+type ChatterPreviewData = typeof import('../lib/adminPreviewData');
 
 const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
-const SHIFT_SELECT_WITH_ASSIGNMENTS = '*';
+const SHIFT_SELECT_WITH_ASSIGNMENTS = `
+  *,
+  shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)
+`;
 
 interface IsraelDateParts {
   year: number;
@@ -156,28 +169,21 @@ function getShiftTypeLabel(startTime: string) {
   return hour < 19 ? 'בוקר' : 'ערב';
 }
 
-function getShiftAssignments(shift: Shift): Pick<ShiftAssignment, 'model' | 'platform'>[] {
+function getShiftAssignments(shift: Shift): MergedShiftAssignment[] {
+  if (shift.shift_assignments && shift.shift_assignments.length > 0) {
+    return shift.shift_assignments.map((assignment) => ({
+      id: assignment.id,
+      model_id: assignment.model_id,
+      model: assignment.model,
+      platform: assignment.platform,
+    }));
+  }
+
   if (shift.model && shift.platform) {
-    return [{ model: shift.model, platform: shift.platform }];
+    return [{ id: null, model_id: shift.model_id, model: shift.model, platform: shift.platform }];
   }
 
   return [];
-}
-
-function formatAssignmentsSummary(shift: Shift) {
-  const assignments = getShiftAssignments(shift);
-  if (assignments.length === 0) return '';
-
-  const byPlatform = new Map<Platform, string[]>();
-  for (const assignment of assignments) {
-    const list = byPlatform.get(assignment.platform) ?? [];
-    list.push(assignment.model);
-    byPlatform.set(assignment.platform, list);
-  }
-
-  return Array.from(byPlatform.entries())
-    .map(([platform, models]) => `${models.join(', ')} (${getPlatformLabel(platform)})`)
-    .join(' • ');
 }
 
 function getSlotTypeLabel(shiftType: ShiftSlot['shift_type']) {
@@ -226,7 +232,7 @@ interface ShiftSlotAvailabilityRow {
   occupied: number;
 }
 
-type SummaryModalSource = 'clock_out' | 'past' | 'debt';
+type SummaryModalSource = 'clock_out' | 'past' | 'debt' | 'manual';
 
 interface ShiftWindow<T extends Shift = Shift> {
   key: string;
@@ -288,11 +294,11 @@ function getWindowStatusBadge(window: ShiftWindow) {
   return { ...fallback, subtext: '' };
 }
 
-function getWindowAssignments(window: ShiftWindow): Pick<ShiftAssignment, 'model' | 'platform'>[] {
-  const unique = new Map<string, Pick<ShiftAssignment, 'model' | 'platform'>>();
+function getWindowAssignments(window: ShiftWindow): MergedShiftAssignment[] {
+  const unique = new Map<string, MergedShiftAssignment>();
   for (const shift of window.shifts) {
     for (const assignment of getShiftAssignments(shift)) {
-      unique.set(`${assignment.model}|${assignment.platform}`, assignment);
+      unique.set(`${assignment.model_id ?? assignment.model}|${assignment.platform}`, assignment);
     }
   }
   return Array.from(unique.values());
@@ -307,7 +313,7 @@ function windowHasSummary(window: ShiftWindow, summaryShiftIds: Set<string>) {
 }
 
 function ShiftWindowDetails({ window }: { window: ShiftWindow }) {
-  const assignments = getWindowAssignments(window);
+  const assignmentGroups = groupMergedShiftAssignments(getWindowAssignments(window));
 
   return (
     <div className="space-y-2 text-sm text-gray-300">
@@ -316,21 +322,36 @@ function ShiftWindowDetails({ window }: { window: ShiftWindow }) {
       </p>
       <div className="space-y-1.5">
         <p className="text-gray-400">המודלים שלך:</p>
-        {assignments.length === 0 ? (
+        {assignmentGroups.length === 0 ? (
           <p className="text-xs text-gray-500">טרם שובץ</p>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {assignments.map((assignment) => (
-              <span
-                key={`${assignment.model}-${assignment.platform}`}
-                className="rounded-full border border-gray-700 bg-gray-800 px-2 py-0.5 text-xs text-gray-200"
-              >
-                {assignment.model} · {getPlatformLabel(assignment.platform)}
-              </span>
-            ))}
-          </div>
+          <AssignmentGroupChips groups={assignmentGroups} />
         )}
       </div>
+    </div>
+  );
+}
+
+function AssignmentGroupChips({ groups }: { groups: MergedShiftAssignmentGroup[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5" dir="rtl">
+      {groups.map((group) => (
+        <span
+          key={group.key}
+          className="max-w-full rounded-xl border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-gray-200"
+        >
+          <span className="block min-w-0 truncate text-center font-medium text-white">
+            {group.model}
+          </span>
+          <span className="mt-1 flex flex-wrap justify-center gap-1">
+            {group.platformLabels.map((platform) => (
+              <span key={platform} className="rounded-full bg-gray-700/80 px-1.5 leading-4">
+                {platform}
+              </span>
+            ))}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -432,6 +453,29 @@ function formatHebrewShortDate(dateString: string) {
   }).format(date);
 }
 
+function formatDateInputValue(dateString: string) {
+  const [year, month, day] = dateString.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function parseDateInputValue(value: string) {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00`);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() + 1 !== Number(month) ||
+    date.getDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
 function getWeeklyStatusBadge(shift: Shift) {
   const isToday = shift.date === getIsraelTodayDateKey();
   if (shift.status === 'pending') {
@@ -470,6 +514,8 @@ function getSharedBoardStatusBadge(status: Shift['status']) {
 
 export function ChatterPage() {
   const navigate = useNavigate();
+  const previewMode = isChatterPreviewMode();
+  const [previewData, setPreviewData] = useState<ChatterPreviewData | null>(null);
   const { profile, chatter, loading, error, logout } = useChatterAuth();
   const { toasts, showToast, dismissToast } = useToast();
   const [weeklyShifts, setWeeklyShifts] = useState<Shift[]>([]);
@@ -496,10 +542,20 @@ export function ChatterPage() {
   const [slotActionId, setSlotActionId] = useState<string | null>(null);
   const [clockInCandidates, setClockInCandidates] = useState<ShiftWindow[] | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  const [manualSummaryDateInput, setManualSummaryDateInput] = useState(() =>
+    formatDateInputValue(getIsraelTodayDateKey())
+  );
+  const [manualSummaryLoading, setManualSummaryLoading] = useState(false);
+  const [manualSummaryError, setManualSummaryError] = useState<string | null>(null);
+  const [manualSummaryCandidates, setManualSummaryCandidates] = useState<ShiftWindow[] | null>(null);
   const weekRange = useMemo(() => getIsraelWeekRange(), []);
   const weekDates = useMemo(() => getWeekDatesFromStart(weekRange.start), [weekRange.start]);
   const currentDateLabel = useMemo(() => formatHebrewCurrentDate(), []);
-  const displayName = profile?.display_name ?? chatter?.name ?? '';
+  const visibleProfile = previewMode ? (previewData?.previewChatterProfile ?? null) : profile;
+  const visibleChatter = previewMode ? (previewData?.previewChatters[0] ?? null) : chatter;
+  const visibleLoading = previewMode ? !previewData : loading;
+  const visibleError = previewMode ? null : error;
+  const displayName = visibleProfile?.display_name ?? visibleChatter?.name ?? '';
   const avatarLetter = (displayName.trim().charAt(0) || 'צ').toUpperCase();
   const activeDuration =
     activeShift?.clocked_in
@@ -510,6 +566,22 @@ export function ChatterPage() {
   const activeShiftWindow = activeShiftSiblings.length > 0 ? createShiftWindow(activeShiftSiblings) : null;
   const weeklyShiftWindows = useMemo(() => groupShiftWindows(weeklyShifts), [weeklyShifts]);
   const pastShiftWindows = useMemo(() => groupShiftWindows(pastShifts).slice(0, 10), [pastShifts]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !previewMode) {
+      setPreviewData(null);
+      return;
+    }
+
+    let mounted = true;
+    void import('../lib/adminPreviewData').then((data) => {
+      if (mounted) setPreviewData(data);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [previewMode]);
 
   const sharedShiftsByDateAndWindow = useMemo(() => {
     const grouped: Record<string, { morning: ShiftWithChatter[]; evening: ShiftWithChatter[] }> = {};
@@ -535,6 +607,70 @@ export function ChatterPage() {
     setSummaryModalWindow(null);
     setSummaryModalSource('clock_out');
   }, []);
+
+  const openManualSummary = useCallback(
+    (window: ShiftWindow) => {
+      setManualSummaryCandidates(null);
+      setManualSummaryError(null);
+      openSummaryModal(window, 'manual');
+    },
+    [openSummaryModal]
+  );
+
+  const handleManualSummaryLookup = useCallback(async () => {
+    const date = parseDateInputValue(manualSummaryDateInput);
+    setManualSummaryError(null);
+    setManualSummaryCandidates(null);
+
+    if (!date) {
+      setManualSummaryError('יש להזין תאריך בפורמט DD/MM/YYYY');
+      return;
+    }
+
+    if (!previewMode && !chatter) return;
+
+    setManualSummaryLoading(true);
+    try {
+      const rows = previewMode
+        ? (previewData?.previewShifts ?? []).filter(
+            (shift) =>
+              shift.chatter_id === previewData?.previewChatters[0]?.id && shift.date === date
+          )
+        : await (async () => {
+            const { data, error: shiftError } = await supabase
+              .from('shifts')
+              .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
+              .eq('chatter_id', chatter!.id)
+              .eq('date', date)
+              .order('start_time', { ascending: true });
+
+            if (shiftError) {
+              throw new Error(LABELS.noConnection);
+            }
+
+            return (data ?? []) as Shift[];
+          })();
+
+      const windows = groupShiftWindows(rows as Shift[]);
+      if (windows.length === 0) {
+        setManualSummaryError('לא נמצאה משמרת שלך בתאריך הזה');
+        return;
+      }
+
+      if (windows.length === 1) {
+        openManualSummary(windows[0]);
+        return;
+      }
+
+      setManualSummaryCandidates(windows);
+    } catch (lookupError) {
+      setManualSummaryError(
+        lookupError instanceof Error ? lookupError.message : 'שגיאה בטעינת המשמרות'
+      );
+    } finally {
+      setManualSummaryLoading(false);
+    }
+  }, [chatter, manualSummaryDateInput, openManualSummary, previewData, previewMode]);
 
   const fetchShiftById = useCallback(
     async (shiftId: string) => {
@@ -715,7 +851,7 @@ export function ChatterPage() {
 
     const { data, error: sharedError } = await supabase
       .from('shifts')
-      .select('*, chatters(name)')
+      .select('*, chatters(name), shift_assignments(id, shift_id, model_id, model, platform, shift_date, shift_start_time, assigned_at)')
       .in('date', weekDates)
       .in('status', ['scheduled', 'active', 'completed'])
       .order('date', { ascending: true })
@@ -1031,10 +1167,68 @@ export function ChatterPage() {
   }
 
   useEffect(() => {
-    if (!loading && error === 'NO_AUTH') {
+    if (!previewMode || !previewData) return;
+
+    const { previewChatters, previewModels, previewShifts } = previewData;
+    const previewChatterId = previewChatters[0].id;
+    const ownShifts = previewShifts.filter((shift) => shift.chatter_id === previewChatterId);
+    const activeWindow =
+      groupShiftWindows(ownShifts.filter((shift) => shift.status === 'active'))[0] ?? null;
+    const nextWindow =
+      groupShiftWindows(ownShifts.filter((shift) => shift.status === 'scheduled'))
+        .sort(
+          (a, b) =>
+            toWallClockMinutes(a.first.date, a.first.start_time) -
+            toWallClockMinutes(b.first.date, b.first.start_time)
+        )[0] ?? null;
+
+    setWeeklyShifts(ownShifts as Shift[]);
+    setSharedWeekShifts(previewShifts);
+    setNextShiftSiblings(nextWindow?.shifts ?? []);
+    setActiveShift(activeWindow?.first ?? null);
+    setActiveShiftSiblings(activeWindow?.shifts ?? []);
+    setPastShifts(ownShifts.filter((shift) => ['completed', 'missed'].includes(shift.status)));
+    setSummaryShiftIds(new Set());
+    setDebtShiftWindow(null);
+    setModels(previewModels);
+    setMonthlyGoal(12_000);
+    setMonthlyEarned(4_275);
+    setManualSummaryDateInput(formatDateInputValue(weekDates[0]));
+    setAvailableSlots([
+      {
+        key: `${weekDates[6]}|morning`,
+        date: weekDates[6],
+        shift_type: 'morning',
+        total_capacity: 4,
+        occupied: 2,
+        is_full: false,
+        chatter_signed_up: false,
+        signup_slot_id: 'preview-slot-morning',
+        queue_slot_id: 'preview-slot-morning',
+      },
+      {
+        key: `${weekDates[6]}|evening`,
+        date: weekDates[6],
+        shift_type: 'evening',
+        total_capacity: 4,
+        occupied: 4,
+        is_full: true,
+        chatter_signed_up: false,
+        signup_slot_id: null,
+        queue_slot_id: 'preview-slot-evening',
+      },
+    ]);
+    setLoadingShifts(false);
+    setLoadingSharedBoard(false);
+    setLoadingPastShifts(false);
+    setLoadingSlots(false);
+  }, [previewMode, previewData, weekDates]);
+
+  useEffect(() => {
+    if (!previewMode && !loading && error === 'NO_AUTH') {
       navigate('/login', { replace: true });
     }
-  }, [loading, error, navigate]);
+  }, [previewMode, loading, error, navigate]);
 
   useEffect(() => {
     if (!activeShift?.clocked_in) return;
@@ -1047,7 +1241,7 @@ export function ChatterPage() {
   }, [activeShift?.clocked_in]);
 
   useEffect(() => {
-    if (!chatter) return;
+    if (previewMode || !chatter) return;
     let active = true;
     Promise.resolve().then(() => {
       if (active) {
@@ -1064,6 +1258,7 @@ export function ChatterPage() {
       active = false;
     };
   }, [
+    previewMode,
     chatter,
     fetchShiftData,
     fetchPastShiftsData,
@@ -1076,7 +1271,7 @@ export function ChatterPage() {
 
   // Realtime: re-fetch when this chatter's shifts, goals, or summaries change
   useEffect(() => {
-    if (!chatter) return;
+    if (previewMode || !chatter) return;
 
     const channel = supabase
       .channel(`chatter-realtime-${chatter.id}`)
@@ -1122,6 +1317,7 @@ export function ChatterPage() {
       supabase.removeChannel(channel);
     };
   }, [
+    previewMode,
     chatter,
     fetchShiftData,
     fetchPastShiftsData,
@@ -1132,6 +1328,11 @@ export function ChatterPage() {
   ]);
 
   const handleLogout = () => {
+    if (previewMode) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
     logout();
     navigate('/login', { replace: true });
   };
@@ -1292,7 +1493,10 @@ export function ChatterPage() {
 
   const showSummaryModalToast = useCallback(
     (type: 'success' | 'error' | 'warning' | 'info', message: string) => {
-      const isRetroactive = summaryModalSource === 'past' || summaryModalSource === 'debt';
+      const isRetroactive =
+        summaryModalSource === 'past' ||
+        summaryModalSource === 'debt' ||
+        summaryModalSource === 'manual';
       if (isRetroactive && type === 'error' && message === 'שגיאה ביציאה מהמשמרת') {
         closeSummaryModal();
         showToast('success', 'הסיכום נשלח בהצלחה!');
@@ -1367,7 +1571,7 @@ export function ChatterPage() {
     [getShiftChatterName, sharedWeekShifts]
   );
 
-  if (loading) {
+  if (visibleLoading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <LoadingSpinner />
@@ -1375,12 +1579,12 @@ export function ChatterPage() {
     );
   }
 
-  if (error === 'NO_AUTH') {
+  if (visibleError === 'NO_AUTH') {
     // Will redirect via useEffect above
     return null;
   }
 
-  if (error && error !== 'NO_AUTH') {
+  if (visibleError && visibleError !== 'NO_AUTH') {
     return (
       <div
         className="min-h-screen bg-gray-950 flex items-center justify-center px-4"
@@ -1388,7 +1592,7 @@ export function ChatterPage() {
         <div className="max-w-sm w-full text-center space-y-3">
           <AlertCircle size={40} className="text-red-500 mx-auto" />
           <p className="text-red-400 text-sm">
-            {error === 'NO_CHATTER_ROLE'
+            {visibleError === 'NO_CHATTER_ROLE'
               ? LABELS.noPermission
               : LABELS.cannotVerifyLink}
           </p>
@@ -1524,6 +1728,69 @@ export function ChatterPage() {
               </button>
             </section>
           )}
+
+          <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-white">סיכום יומי לפי תאריך</h2>
+                <p className="mt-1 text-xs text-gray-400">
+                  בחר תאריך של משמרת קודמת ופתח טופס סיכום
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <label className="flex-1 text-sm text-gray-300">
+                תאריך
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={manualSummaryDateInput}
+                  onChange={(event) => {
+                    setManualSummaryDateInput(event.target.value);
+                    setManualSummaryError(null);
+                    setManualSummaryCandidates(null);
+                  }}
+                  placeholder="DD/MM/YYYY"
+                  className="mt-1 w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-left text-white"
+                  dir="ltr"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleManualSummaryLookup();
+                }}
+                disabled={manualSummaryLoading}
+                className="min-h-[42px] self-end rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-60"
+              >
+                {manualSummaryLoading ? 'טוען...' : 'פתח סיכום'}
+              </button>
+            </div>
+
+            {manualSummaryError && (
+              <p className="text-xs text-red-300">{manualSummaryError}</p>
+            )}
+
+            {manualSummaryCandidates && (
+              <div className="space-y-2 rounded-xl border border-gray-800 bg-gray-950/40 p-2">
+                <p className="text-xs font-medium text-gray-300">בחר משמרת לסיכום</p>
+                {manualSummaryCandidates.map((window) => (
+                  <button
+                    key={window.key}
+                    type="button"
+                    onClick={() => openManualSummary(window)}
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-right text-sm text-white hover:bg-gray-700"
+                  >
+                    {getShiftTypeLabel(window.first.start_time)} ·{' '}
+                    <span className="font-mono">
+                      {formatTime(window.first.start_time)}–{formatTime(window.first.end_time)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
 
           <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
@@ -1815,24 +2082,26 @@ export function ChatterPage() {
                             key={`${window.key}-${date}`}
                             className="min-h-[170px] rounded-lg p-2 space-y-2 border bg-gray-800/30 border-gray-800"
                           >
-                            {sharedShiftsByDateAndWindow[date][window.key].map((shift) => {
-                              const isOwnShift = shift.chatter_id === chatter?.id;
-                              const statusBadge = getSharedBoardStatusBadge(shift.status);
-                              const assignmentsSummary = formatAssignmentsSummary(shift);
+                            {groupShiftBlocks(sharedShiftsByDateAndWindow[date][window.key]).map((block) => {
+                              const shift = block.shift;
+                              const isOwnShift = shift.chatter_id === visibleChatter?.id;
+                              const statusBadge = getSharedBoardStatusBadge(block.status);
+                              const assignmentGroups = getMergedShiftAssignmentGroups(block);
                               const withYouNames = getSharedWindowNames(shift);
 
                               return (
                                 <article
-                                  key={shift.id}
+                                  key={block.shiftId}
                                   className={cn(
-                                    'rounded-md p-2 border',
+                                    'rounded-md p-2 border text-right',
                                     isOwnShift
                                       ? 'border-blue-500/60 bg-blue-900/20'
                                       : 'border-transparent bg-gray-800/60'
                                   )}
+                                  dir="rtl"
                                 >
                                   <div className="flex items-start justify-between gap-2 mb-1">
-                                    <p className="text-xs font-semibold text-white truncate">
+                                    <p className="text-xs font-bold text-white truncate">
                                       {getShiftChatterName(shift)}
                                     </p>
                                     {isOwnShift && (
@@ -1842,9 +2111,37 @@ export function ChatterPage() {
                                     )}
                                   </div>
 
-                                  <p className="text-[11px] text-gray-300 truncate mb-1">
-                                    {assignmentsSummary || 'טרם שובץ מודל'}
-                                  </p>
+                                  <div className="mb-1 flex flex-wrap gap-1.5">
+                                    {assignmentGroups.length === 0 ? (
+                                      <span
+                                        className="max-w-full rounded-full border border-gray-700 bg-gray-900/70 px-2 py-0.5 text-[11px] text-gray-200"
+                                      >
+                                        ללא הקצאה
+                                      </span>
+                                    ) : (
+                                      assignmentGroups.map((group) => (
+                                        <span
+                                          key={group.key}
+                                          className="max-w-full rounded-xl border border-gray-700 bg-gray-900/70 px-2 py-1 text-[11px] text-gray-200"
+                                          dir="rtl"
+                                        >
+                                          <span className="block min-w-0 truncate text-center font-medium text-white">
+                                            {group.model}
+                                          </span>
+                                          <span className="mt-1 flex flex-wrap justify-center gap-1">
+                                            {group.platformLabels.map((platform) => (
+                                              <span
+                                                key={platform}
+                                                className="rounded-full bg-gray-700/80 px-1.5 leading-4"
+                                              >
+                                                {platform}
+                                              </span>
+                                            ))}
+                                          </span>
+                                        </span>
+                                      ))
+                                    )}
+                                  </div>
 
                                   {withYouNames.length > 0 && (
                                     <p className="text-[11px] text-gray-400 truncate mb-1">
@@ -1875,18 +2172,23 @@ export function ChatterPage() {
         </div>
       </ChatterLayout>
 
-      {summaryModalWindow && chatter && (
+      {summaryModalWindow && visibleChatter && (
         <DailySummaryModal
           shift={summaryModalWindow.first}
           windowShifts={summaryModalWindow.shifts}
-          chatterId={chatter.id}
-          token={chatter.token}
+          chatterId={visibleChatter.id}
+          token={visibleChatter.token}
           models={models}
+          previewSubmit={previewMode}
           successMessage={
             summaryModalSource === 'clock_out' ? LABELS.clockedOutSuccess : 'הסיכום נשלח בהצלחה!'
           }
           onClose={closeSummaryModal}
           onSubmitted={async () => {
+            if (previewMode) {
+              closeSummaryModal();
+              return;
+            }
             await fetchShiftData();
             await fetchMonthlyProgress();
             await fetchPastShiftsData();

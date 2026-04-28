@@ -75,13 +75,8 @@ export function ShiftEditor({
   const existingAssignments = useMemo<ShiftCombination[]>(() => {
     if (!shift) return [];
 
-    const siblings = existingShifts.filter(
-      (s) =>
-        s.chatter_id === shift.chatter_id &&
-        s.date === shift.date &&
-        s.start_time === shift.start_time &&
-        s.end_time === shift.end_time
-    );
+    const matchingRows = existingShifts.filter((s) => s.id === shift.id);
+    const siblings = matchingRows.length > 0 ? matchingRows : [shift];
 
     const assignments: ShiftCombination[] = [];
     const seen = new Set<string>();

@@ -4,6 +4,7 @@ import type { Model, Platform, Shift, ShiftWithChatter } from '../../lib/types';
 import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
+import { getMergedShiftAssignmentGroups, groupShiftBlocks } from '../../lib/shiftGrouping';
 
 interface WeeklyGridProps {
   shifts: ShiftWithChatter[];
@@ -12,16 +13,23 @@ interface WeeklyGridProps {
   onWeekChange: (offset: number) => void;
   onAddShift: (date: string, shiftType: 'morning' | 'evening') => void;
   onEditShift: (shift: Shift) => void;
+  onOpenApproval?: () => void;
   showToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 interface TooltipState {
   cellKey: string;
-  flipToLeft: boolean;
+  left: number;
+  top: number;
+  bodyMaxHeight: number;
 }
 
 const TOOLTIP_WIDTH = 280;
 const TOOLTIP_SAFETY_MARGIN = 16;
+const TOOLTIP_EDGE_GAP = 8;
+const TOOLTIP_MIN_BODY_HEIGHT = 160;
+const TOOLTIP_MAX_BODY_HEIGHT = 300;
+const TOOLTIP_FIXED_CHROME_HEIGHT = 96;
 const COVERAGE_STATUSES = new Set<Shift['status']>(['scheduled', 'active', 'completed']);
 
 export function WeeklyGrid({
@@ -31,6 +39,7 @@ export function WeeklyGrid({
   onWeekChange,
   onAddShift,
   onEditShift,
+  onOpenApproval,
   showToast,
 }: WeeklyGridProps) {
   const [generatingSlots, setGeneratingSlots] = useState(false);
@@ -140,10 +149,6 @@ export function WeeklyGrid({
     return `${start} - ${end}`;
   }
 
-  function getPlatformLabel(platform: Platform) {
-    return platform === 'telegram' ? 'טלגרם' : 'אונליפאנס';
-  }
-
   function getShiftAssignments(shift: ShiftWithChatter): {
     model_id: string | null;
     model: string;
@@ -164,6 +169,12 @@ export function WeeklyGrid({
     return [];
   }
 
+  function formatClockTimestamp(value: string | null) {
+    if (!value) return '';
+    if (value.includes('T')) return value.slice(11, 16);
+    return formatTime(value);
+  }
+
   const modelIdByName = useMemo(() => {
     const map = new Map<string, string>();
     for (const model of models) {
@@ -182,27 +193,63 @@ export function WeeklyGrid({
 
   function buildTooltipState(cellKey: string, element: HTMLDivElement): TooltipState {
     const cellRect = element.getBoundingClientRect();
-    const flipToLeft = cellRect.left < TOOLTIP_WIDTH + TOOLTIP_SAFETY_MARGIN;
-    return { cellKey, flipToLeft };
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const preferredLeft =
+      cellRect.left >= TOOLTIP_WIDTH + TOOLTIP_SAFETY_MARGIN
+        ? cellRect.left - TOOLTIP_WIDTH - TOOLTIP_EDGE_GAP
+        : cellRect.right + TOOLTIP_EDGE_GAP;
+    const maxLeft = Math.max(
+      TOOLTIP_SAFETY_MARGIN,
+      viewportWidth - TOOLTIP_WIDTH - TOOLTIP_SAFETY_MARGIN
+    );
+    const left = Math.min(Math.max(preferredLeft, TOOLTIP_SAFETY_MARGIN), maxLeft);
+    const bodyMaxHeight = Math.max(
+      TOOLTIP_MIN_BODY_HEIGHT,
+      Math.min(
+        TOOLTIP_MAX_BODY_HEIGHT,
+        viewportHeight - TOOLTIP_SAFETY_MARGIN * 2 - TOOLTIP_FIXED_CHROME_HEIGHT
+      )
+    );
+    const estimatedHeight = bodyMaxHeight + TOOLTIP_FIXED_CHROME_HEIGHT;
+    const centerY = cellRect.top + cellRect.height / 2;
+    const top = Math.min(
+      Math.max(centerY, TOOLTIP_SAFETY_MARGIN + estimatedHeight / 2),
+      viewportHeight - TOOLTIP_SAFETY_MARGIN - estimatedHeight / 2
+    );
+
+    return { cellKey, left, top, bodyMaxHeight };
   }
 
-  function getCoverageKeyFromShift(shift: ShiftWithChatter): string | null {
-    if (!COVERAGE_STATUSES.has(shift.status)) return null;
-    if (!shift.model || !shift.platform) return null;
+  function getCoverageKeysFromShift(shift: ShiftWithChatter): string[] {
+    if (!COVERAGE_STATUSES.has(shift.status)) return [];
 
-    const resolvedModelId =
-      shift.model_id ?? modelIdByName.get(shift.model.trim().toLowerCase()) ?? null;
-    if (!resolvedModelId) return null;
+    return getShiftAssignments(shift)
+      .map((assignment) => {
+        const resolvedModelId =
+          assignment.model_id ?? modelIdByName.get(assignment.model.trim().toLowerCase()) ?? null;
+        if (!resolvedModelId) return null;
+        return makeCoverageKey(resolvedModelId, assignment.platform);
+      })
+      .filter((key): key is string => Boolean(key));
+  }
 
-    return makeCoverageKey(resolvedModelId, shift.platform);
+  function getBlockBackground(status: Shift['status']) {
+    if (status === 'active') return 'bg-blue-900/35';
+    if (status === 'completed') return 'bg-green-900/30';
+    if (status === 'missed') return 'bg-red-900/35';
+    if (status === 'scheduled') return 'bg-gray-700/50';
+    if (status === 'pending') return 'bg-yellow-900/30';
+    return 'bg-red-950/30';
   }
 
   function getCoveredAssignments(cellShifts: ShiftWithChatter[]) {
     const covered = new Set<string>();
 
     for (const shift of cellShifts) {
-      const coverageKey = getCoverageKeyFromShift(shift);
-      if (coverageKey) covered.add(coverageKey);
+      for (const coverageKey of getCoverageKeysFromShift(shift)) {
+        covered.add(coverageKey);
+      }
     }
 
     return covered;
@@ -349,7 +396,6 @@ export function WeeklyGrid({
                 const coverage = getCellCoverage(cellShifts);
                 const activeTooltip = isTouchDevice ? tappedTooltip : hoveredTooltip;
                 const isTooltipVisible = activeTooltip?.cellKey === cellKey;
-                const flipToLeft = activeTooltip?.flipToLeft ?? false;
 
                 return (
                   <div
@@ -378,100 +424,88 @@ export function WeeklyGrid({
                     }
                   >
                     {(() => {
-                      const chatterGroups = new Map<string, ShiftWithChatter[]>();
-                      for (const shift of cellShifts) {
-                        const group = chatterGroups.get(shift.chatter_id) ?? [];
-                        group.push(shift);
-                        chatterGroups.set(shift.chatter_id, group);
-                      }
-
-                      const statusPriority: Record<Shift['status'], number> = {
-                        missed: 0,
-                        rejected: 1,
-                        cancelled: 2,
-                        pending: 3,
-                        scheduled: 4,
-                        active: 5,
-                        completed: 6,
-                      };
-
-                      return Array.from(chatterGroups.entries()).map(([chatterId, groupShifts]) => {
-                        const representativeShift = groupShifts[0];
-                        const allAssignments: {
-                          model_id: string | null;
-                          model: string;
-                          platform: Platform;
-                        }[] = [];
-                        const seenAssignments = new Set<string>();
-
-                        for (const groupedShift of groupShifts) {
-                          const assignments = getShiftAssignments(groupedShift);
-                          for (const assignment of assignments) {
-                            const assignmentKey = `${assignment.model_id}|${assignment.platform}`;
-                            if (seenAssignments.has(assignmentKey)) continue;
-                            seenAssignments.add(assignmentKey);
-                            allAssignments.push(assignment);
-                          }
-                        }
-
-                        const platformAssignments = new Map<Platform, string[]>();
-                        for (const assignment of allAssignments) {
-                          const modelNames = platformAssignments.get(assignment.platform) ?? [];
-                          modelNames.push(assignment.model);
-                          platformAssignments.set(assignment.platform, modelNames);
-                        }
-
-                        const displayStatus = groupShifts.reduce<Shift['status']>(
-                          (worstStatus, groupedShift) =>
-                            statusPriority[groupedShift.status] < statusPriority[worstStatus]
-                              ? groupedShift.status
-                              : worstStatus,
-                          representativeShift.status
-                        );
-
+                      return groupShiftBlocks(cellShifts).map((block) => {
+                        const representativeShift = block.shift;
+                        const assignmentGroups = getMergedShiftAssignmentGroups(block);
+                        const clockedIn = formatClockTimestamp(representativeShift.clocked_in);
+                        const clockedOut = formatClockTimestamp(representativeShift.clocked_out);
                         return (
                           <div
-                            key={`chatter-${chatterId}`}
+                            key={block.shiftId}
                             onClick={(e) => {
                               e.stopPropagation();
                               onEditShift(representativeShift);
                             }}
                             className={cn(
-                              'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all',
-                              displayStatus === 'active'
-                                ? 'bg-green-900/35'
-                                : displayStatus === 'completed'
-                                  ? 'bg-blue-900/30'
-                                  : displayStatus === 'missed'
-                                    ? 'bg-red-900/35'
-                                    : displayStatus === 'scheduled'
-                                      ? 'bg-gray-700/50'
-                                      : displayStatus === 'pending'
-                                        ? 'bg-yellow-900/30'
-                                        : 'bg-red-950/30'
+                              'rounded-md p-2 cursor-pointer border border-transparent hover:border-gray-500 transition-all text-right',
+                              getBlockBackground(block.status)
                             )}
+                            dir="rtl"
                           >
-                            <p className="text-xs font-semibold text-white truncate mb-1">
-                              {representativeShift.chatters?.name ?? '—'}
-                            </p>
-                            {allAssignments.length > 0 ? (
-                              <div className="mb-1 space-y-0.5">
-                                {Array.from(platformAssignments.entries()).map(
-                                  ([platform, modelNames]) => (
-                                    <p key={platform} className="text-[11px] text-gray-300 truncate">
-                                      {getPlatformLabel(platform)}: {modelNames.join(', ')}
-                                    </p>
-                                  )
-                                )}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-gray-500 truncate mb-1">טרם שובץ</p>
-                            )}
-                            <p className="text-[11px] text-gray-400 font-mono mb-1">
-                              {formatTime(representativeShift.start_time)}–
-                              {formatTime(representativeShift.end_time)}
-                            </p>
-                            <StatusBadge status={displayStatus} />
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <p className="min-w-0 truncate text-xs font-bold text-white">
+                                {representativeShift.chatters?.name ?? '—'}
+                              </p>
+                              <StatusBadge status={block.status} />
+                            </div>
+
+                            <div className="mb-2 flex flex-wrap gap-1.5">
+                              {assignmentGroups.length === 0 ? (
+                                <span
+                                  className="max-w-full rounded-full border border-gray-600/70 bg-gray-950/30 px-2 py-0.5 text-[11px] text-gray-200"
+                                >
+                                  ללא הקצאה
+                                </span>
+                              ) : (
+                                assignmentGroups.map((group) => (
+                                  <span
+                                    key={group.key}
+                                    className="max-w-full rounded-xl border border-gray-600/70 bg-gray-950/30 px-2 py-1 text-[11px] text-gray-200"
+                                    dir="rtl"
+                                  >
+                                    <span className="block min-w-0 truncate text-center font-medium text-white">
+                                      {group.model}
+                                    </span>
+                                    <span className="mt-1 flex flex-wrap justify-center gap-1">
+                                      {group.platformLabels.map((platform) => (
+                                        <span
+                                          key={platform}
+                                          className="rounded-full bg-gray-700/70 px-1.5 leading-4 text-gray-200"
+                                        >
+                                          {platform}
+                                        </span>
+                                      ))}
+                                    </span>
+                                  </span>
+                                ))
+                              )}
+                            </div>
+
+                            <div className="space-y-1 text-[11px] text-gray-400">
+                              <p className="font-mono">
+                                {formatTime(representativeShift.start_time)}–
+                                {formatTime(representativeShift.end_time)}
+                              </p>
+                              {(clockedIn || clockedOut) && (
+                                <p>
+                                  {clockedIn ? `כניסה ${clockedIn}` : ''}
+                                  {clockedIn && clockedOut ? ' · ' : ''}
+                                  {clockedOut ? `יציאה ${clockedOut}` : ''}
+                                </p>
+                              )}
+                              {block.status === 'pending' && onOpenApproval && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onOpenApproval();
+                                  }}
+                                  className="mt-1 min-h-[28px] rounded-md bg-green-700 px-2 text-xs font-medium text-white hover:bg-green-600"
+                                >
+                                  אישור
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       });
@@ -479,17 +513,24 @@ export function WeeklyGrid({
 
                     {isTooltipVisible && (
                       <div
-                        className={cn(
-                          'pointer-events-none absolute z-30 top-1/2 -translate-y-1/2 w-[280px] max-w-[80vw] rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl',
-                          flipToLeft ? 'left-full ml-2' : 'right-full mr-2'
-                        )}
+                        className="pointer-events-none fixed z-50 -translate-y-1/2 rounded-lg border border-gray-700 bg-gray-900 p-2 shadow-xl"
+                        style={{
+                          left: activeTooltip.left,
+                          top: activeTooltip.top,
+                          width: TOOLTIP_WIDTH,
+                          maxWidth: `calc(100vw - ${TOOLTIP_SAFETY_MARGIN * 2}px)`,
+                        }}
+                        dir="rtl"
                       >
                         <div className="grid grid-cols-3 bg-gray-950/70 px-2 py-1.5 text-[11px] text-gray-400 rounded-md">
                           <span>מודל</span>
                           <span className="text-center">טלגרם</span>
                           <span className="text-center">אונליפאנס</span>
                         </div>
-                        <div className="mt-1 max-h-[300px] overflow-y-auto overscroll-contain pointer-events-auto">
+                        <div
+                          className="mt-1 overflow-y-auto overscroll-contain pointer-events-auto"
+                          style={{ maxHeight: activeTooltip.bodyMaxHeight }}
+                        >
                           {models.map((model) => (
                             <div
                               key={`${cellKey}-${model.id}`}
