@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ShiftWithChatter } from '../types';
 import {
+  groupChatterWindowBlocks,
   getMergedShiftAssignmentGroups,
   getMergedShiftAssignmentLabels,
   groupShiftBlocks,
@@ -162,5 +163,66 @@ describe('shiftGrouping', () => {
     ]);
 
     expect(getMergedShiftAssignmentLabels(blocks[0])).toEqual(['ללא הקצאה']);
+  });
+
+  it('can merge multiple shift_ids for the same chatter window in the shared chatter board', () => {
+    const blocks = groupChatterWindowBlocks([
+      makeShift({
+        id: 'shift-ziv-lina',
+        model: 'Lina',
+        model_id: 'model-1',
+        platform: 'telegram',
+        shift_assignments: null,
+      }),
+      makeShift({
+        id: 'shift-ziv-maya',
+        model: 'Maya',
+        model_id: 'model-2',
+        platform: 'onlyfans',
+        shift_assignments: null,
+      }),
+    ]);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].shifts.map((shift) => shift.id)).toEqual([
+      'shift-ziv-lina',
+      'shift-ziv-maya',
+    ]);
+    expect(getMergedShiftAssignmentLabels(blocks[0])).toEqual([
+      'Lina · טלגרם',
+      'Maya · אונליפאנס',
+    ]);
+  });
+
+  it('does not merge two chatters in the same shared board window', () => {
+    const blocks = groupChatterWindowBlocks([
+      makeShift({ id: 'shift-ziv', chatter_id: 'chatter-ziv' }),
+      makeShift({ id: 'shift-dan', chatter_id: 'chatter-dan' }),
+    ]);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map((block) => block.chatterId)).toEqual(['chatter-ziv', 'chatter-dan']);
+  });
+
+  it('keeps morning and evening as distinct shared board blocks for one chatter', () => {
+    const blocks = groupChatterWindowBlocks([
+      makeShift({ id: 'shift-morning', start_time: '12:00', end_time: '19:00' }),
+      makeShift({ id: 'shift-evening', start_time: '19:00', end_time: '02:00' }),
+    ]);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map((block) => block.key)).toEqual([
+      'chatter-1|2026-04-26|12:00|19:00',
+      'chatter-1|2026-04-26|19:00|02:00',
+    ]);
+  });
+
+  it('uses the most urgent status on shared board chatter-window blocks', () => {
+    const blocks = groupChatterWindowBlocks([
+      makeShift({ id: 'shift-scheduled', status: 'scheduled' }),
+      makeShift({ id: 'shift-active', status: 'active' }),
+    ]);
+
+    expect(blocks[0].status).toBe('active');
   });
 });

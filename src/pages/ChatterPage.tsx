@@ -12,8 +12,8 @@ import type { Model, Shift, ShiftSlot, ShiftWithChatter } from '../lib/types';
 import { DailySummaryModal } from '../components/chatter/DailySummaryModal';
 import {
   getMergedShiftAssignmentGroups,
+  groupChatterWindowBlocks,
   groupMergedShiftAssignments,
-  groupShiftBlocks,
   type MergedShiftAssignment,
   type MergedShiftAssignmentGroup,
 } from '../lib/shiftGrouping';
@@ -1558,7 +1558,7 @@ export function ChatterPage() {
       const names = sharedWeekShifts
         .filter(
           (candidate) =>
-            candidate.id !== shift.id &&
+            candidate.chatter_id !== shift.chatter_id &&
             candidate.date === shift.date &&
             candidate.start_time === shift.start_time &&
             candidate.end_time === shift.end_time
@@ -2082,16 +2082,16 @@ export function ChatterPage() {
                             key={`${window.key}-${date}`}
                             className="min-h-[170px] rounded-lg p-2 space-y-2 border bg-gray-800/30 border-gray-800"
                           >
-                            {groupShiftBlocks(sharedShiftsByDateAndWindow[date][window.key]).map((block) => {
+                            {groupChatterWindowBlocks(sharedShiftsByDateAndWindow[date][window.key]).map((block) => {
                               const shift = block.shift;
-                              const isOwnShift = shift.chatter_id === visibleChatter?.id;
+                              const isOwnShift = block.chatterId === visibleChatter?.id;
                               const statusBadge = getSharedBoardStatusBadge(block.status);
                               const assignmentGroups = getMergedShiftAssignmentGroups(block);
                               const withYouNames = getSharedWindowNames(shift);
 
                               return (
                                 <article
-                                  key={block.shiftId}
+                                  key={block.key}
                                   className={cn(
                                     'rounded-md p-2 border text-right',
                                     isOwnShift

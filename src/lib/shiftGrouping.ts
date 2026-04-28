@@ -37,6 +37,8 @@ export interface MergedShiftAssignmentGroup {
   platformLabels: string[];
 }
 
+type ShiftWindowLike = ShiftLike & Pick<Shift, 'date' | 'start_time' | 'end_time'>;
+
 function getShiftAssignments(shift: ShiftLike): MergedShiftAssignment[] {
   if (shift.shift_assignments && shift.shift_assignments.length > 0) {
     return shift.shift_assignments.map((assignment: ShiftAssignment) => ({
@@ -81,6 +83,23 @@ function mergeAssignments(shifts: ShiftLike[]) {
   return assignments;
 }
 
+function getMergedStatus(shifts: ShiftLike[]) {
+  const statusOrder: Shift['status'][] = [
+    'active',
+    'pending',
+    'scheduled',
+    'completed',
+    'missed',
+    'rejected',
+    'cancelled',
+  ];
+
+  return (
+    statusOrder.find((status) => shifts.some((shift) => shift.status === status)) ??
+    shifts[0].status
+  );
+}
+
 export function groupShiftBlocks<T extends ShiftLike>(shifts: T[]): MergedShiftBlock<T>[] {
   const groups = new Map<string, T[]>();
 
@@ -100,6 +119,32 @@ export function groupShiftBlocks<T extends ShiftLike>(shifts: T[]): MergedShiftB
       assignments: mergeAssignments(group),
       chatterId: first.chatter_id,
       status: first.status,
+    };
+  });
+}
+
+export function groupChatterWindowBlocks<T extends ShiftWindowLike>(
+  shifts: T[]
+): MergedShiftBlock<T>[] {
+  const groups = new Map<string, T[]>();
+
+  for (const shift of shifts) {
+    const key = `${shift.chatter_id}|${shift.date}|${shift.start_time}|${shift.end_time}`;
+    const group = groups.get(key) ?? [];
+    group.push(shift);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.entries()).map(([key, group]) => {
+    const first = group[0];
+    return {
+      shiftId: first.id,
+      key,
+      shift: first,
+      shifts: group,
+      assignments: mergeAssignments(group),
+      chatterId: first.chatter_id,
+      status: getMergedStatus(group),
     };
   });
 }
