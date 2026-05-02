@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronLeft, Plus, CalendarPlus } from 'lucide-react';
 import type { Model, Platform, Shift, ShiftWithChatter } from '../../lib/types';
-import { LABELS, formatTime, getWeekDates, cn } from '../../lib/utils';
+import {
+  LABELS,
+  cn,
+  formatDateNumeric,
+  formatTime,
+  getHebrewWeekdayLabel,
+  getWeekDates,
+} from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
 import { supabase } from '../../lib/supabase';
 import { getMergedShiftAssignmentGroups, groupChatterWindowBlocks } from '../../lib/shiftGrouping';
@@ -137,15 +144,9 @@ export function WeeklyGrid({
     shiftsByDateAndWindow[shift.date][window].push(shift);
   }
 
-  // Format header date nicely
-  function formatHeaderDate(dateStr: string) {
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' });
-  }
-
   function formatWeekLabel() {
-    const start = formatHeaderDate(weekDates[0]);
-    const end = formatHeaderDate(weekDates[6]);
+    const start = formatDateNumeric(weekDates[0]);
+    const end = formatDateNumeric(weekDates[6]);
     return `${start} - ${end}`;
   }
 
@@ -355,7 +356,7 @@ export function WeeklyGrid({
       <div className="overflow-x-auto overflow-y-visible -mx-4 sm:mx-0 px-4 sm:px-0">
         <div className="grid grid-cols-8 gap-2 min-w-[980px] overflow-visible">
           <div className="text-center pb-2 border-b border-gray-700" />
-          {weekDates.map((date, i) => (
+          {weekDates.map((date) => (
             <div
               key={date}
               className={cn(
@@ -369,7 +370,7 @@ export function WeeklyGrid({
                   isToday(date) ? 'text-blue-400' : 'text-gray-400'
                 )}
               >
-                {LABELS.days[i]}
+                {getHebrewWeekdayLabel(date)}
               </p>
               <p
                 className={cn(
@@ -377,7 +378,7 @@ export function WeeklyGrid({
                   isToday(date) ? 'text-blue-300' : 'text-gray-300'
                 )}
               >
-                {formatHeaderDate(date)}
+                {formatDateNumeric(date)}
               </p>
             </div>
           ))}

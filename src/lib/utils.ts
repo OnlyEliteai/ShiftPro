@@ -226,14 +226,69 @@ export function formatTime(time: string): string {
   return time.slice(0, 5);
 }
 
+const ISRAEL_TIMEZONE = 'Asia/Jerusalem';
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function parseDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return { year, month, day };
+}
+
+function toDateKey(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function dateKeyToUtcDate(dateKey: string, hour = 12): Date {
+  const { year, month, day } = parseDateKey(dateKey);
+  return new Date(Date.UTC(year, month - 1, day, hour, 0, 0));
+}
+
+function getIsraelDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: ISRAEL_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+  };
+}
+
 export function formatDate(date: string): string {
-  const d = new Date(date + 'T00:00:00');
-  return d.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: ISRAEL_TIMEZONE,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'numeric',
+  }).format(dateKeyToUtcDate(date));
 }
 
 export function formatDateFull(date: string): string {
-  const d = new Date(date + 'T00:00:00');
-  return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+  return new Intl.DateTimeFormat('he-IL', {
+    timeZone: ISRAEL_TIMEZONE,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(dateKeyToUtcDate(date));
+}
+
+export function formatDateNumeric(dateKey: string): string {
+  const { month, day } = parseDateKey(dateKey);
+  return `${day}.${month}`;
+}
+
+export function getHebrewWeekdayLabel(dateKey: string): string {
+  return LABELS.days[dateKeyToUtcDate(dateKey, 0).getUTCDay()];
 }
 
 export function getStatusColor(status: string): string {
@@ -253,16 +308,16 @@ export function getStatusLabel(status: string): string {
   return LABELS[status as keyof typeof LABELS] as string || status;
 }
 
-export function getWeekDates(offset = 0): string[] {
-  const today = new Date();
-  const day = today.getDay();
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() - day + offset * 7);
+export function getWeekDates(offset = 0, baseDate = new Date()): string[] {
+  const today = getIsraelDateParts(baseDate);
+  const todayUtc = new Date(Date.UTC(today.year, today.month - 1, today.day));
+  const sunday = new Date(todayUtc);
+  sunday.setUTCDate(todayUtc.getUTCDate() - todayUtc.getUTCDay() + offset * 7);
 
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(sunday);
-    d.setDate(sunday.getDate() + i);
-    return d.toISOString().split('T')[0];
+    d.setUTCDate(sunday.getUTCDate() + i);
+    return toDateKey(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
   });
 }
 
