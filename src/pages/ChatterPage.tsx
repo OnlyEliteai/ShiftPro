@@ -4,7 +4,7 @@ import { useChatterAuth } from '../hooks/useChatterAuth';
 import { ChatterLayout } from '../components/chatter/ChatterLayout';
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
-import { LABELS, formatTime, cn } from '../lib/utils';
+import { LABELS, formatTime, cn, getHebrewWeekdayLabel } from '../lib/utils';
 import { AlertCircle, Clock3, Timer, XCircle } from 'lucide-react';
 import { SUPABASE_URL, supabase, callEdgeFunction } from '../lib/supabase';
 import { useToast } from '../hooks/useToast';
@@ -17,6 +17,7 @@ import {
   type MergedShiftAssignment,
   type MergedShiftAssignmentGroup,
 } from '../lib/shiftGrouping';
+import { buildGroupedAvailableSlots } from '../lib/slotAvailability';
 import { isChatterPreviewMode } from '../lib/previewMode';
 
 type ChatterPreviewData = typeof import('../lib/adminPreviewData');
@@ -203,13 +204,6 @@ function getShiftTypeByStartTime(startTime: string): ShiftSlot['shift_type'] {
   return Number(startTime.slice(0, 2)) < 19 ? 'morning' : 'evening';
 }
 
-function getSlotKey(
-  date: string,
-  shiftType: ShiftSlot['shift_type']
-) {
-  return `${date}|${shiftType}`;
-}
-
 interface GroupedAvailableSlot {
   key: string;
   date: string;
@@ -379,10 +373,6 @@ function ShiftWindowHeader({ window }: { window: ShiftWindow }) {
       )}
     </div>
   );
-}
-
-function getShiftTypeOrder(shiftType: ShiftSlot['shift_type']) {
-  return shiftType === 'morning' ? 0 : 1;
 }
 
 function mapClockInErrorMessage(status: number, rawMessage?: string) {
@@ -934,11 +924,6 @@ export function ChatterPage() {
     }
 
     const availabilityRows = (availabilityData ?? []) as ShiftSlotAvailabilityRow[];
-    if (availabilityRows.length === 0) {
-      setAvailableSlots([]);
-      setLoadingSlots(false);
-      return;
-    }
 
     const { data: slotData, error: slotsError } = await supabase
       .from('shift_slots')
@@ -956,68 +941,35 @@ export function ChatterPage() {
     }
 
     const slotRows = (slotData ?? []) as ShiftSlot[];
-    const slotLookup = new Map<
-      string,
-      { signup_slot_id: string | null; queue_slot_id: string | null }
-    >();
-    for (const slot of slotRows) {
-      const key = getSlotKey(slot.date, slot.shift_type);
-      const current = slotLookup.get(key) ?? { signup_slot_id: null, queue_slot_id: null };
+    const [
+      { data: chatterShiftData, error: chatterShiftError },
+      { data: occupancyData, error: occupancyError },
+    ] = await Promise.all([
+      supabase
+        .from('shifts')
+        .select('date, start_time')
+        .eq('chatter_id', chatter.id)
+        .gte('date', today)
+        .in('status', ['pending', 'scheduled', 'active']),
+      supabase
+        .from('shifts')
+        .select('date, start_time')
+        .gte('date', today)
+        .in('status', ['pending', 'scheduled', 'active']),
+    ]);
 
-      if (!current.queue_slot_id) {
-        current.queue_slot_id = slot.id;
-      }
-      if (slot.status === 'open' && !current.signup_slot_id) {
-        current.signup_slot_id = slot.id;
-      }
-
-      slotLookup.set(key, current);
-    }
-
-    const { data: chatterShiftData, error: chatterShiftError } = await supabase
-      .from('shifts')
-      .select('date, start_time')
-      .eq('chatter_id', chatter.id)
-      .gte('date', today)
-      .in('status', ['pending', 'scheduled', 'active']);
-
-    if (chatterShiftError) {
+    if (chatterShiftError || occupancyError) {
       showToast('error', LABELS.noConnection);
       setLoadingSlots(false);
       return;
     }
 
-    const chatterSignedUpBySlot = new Set<string>();
-    for (const shift of (chatterShiftData ?? []) as Pick<Shift, 'date' | 'start_time'>[]) {
-      const shiftType = getShiftTypeByStartTime(shift.start_time);
-      chatterSignedUpBySlot.add(getSlotKey(shift.date, shiftType));
-    }
-
-    const groupedSlots = availabilityRows
-      .map((row) => {
-        if (row.slot_shift_type !== 'morning' && row.slot_shift_type !== 'evening') return null;
-        const shiftType = row.slot_shift_type as ShiftSlot['shift_type'];
-        const key = getSlotKey(row.slot_date, shiftType);
-        const slotIds = slotLookup.get(key);
-
-        return {
-          key,
-          date: row.slot_date,
-          shift_type: shiftType,
-          total_capacity: Math.max(0, Number(row.total_needed ?? 0)),
-          occupied: Math.max(0, Number(row.occupied ?? 0)),
-          is_full: Boolean(row.is_full),
-          chatter_signed_up: chatterSignedUpBySlot.has(key),
-          signup_slot_id: slotIds?.signup_slot_id ?? null,
-          queue_slot_id: slotIds?.queue_slot_id ?? null,
-        } satisfies GroupedAvailableSlot;
-      })
-      .filter((slot): slot is GroupedAvailableSlot => Boolean(slot))
-
-      .sort(
-        (a, b) =>
-          a.date.localeCompare(b.date) || getShiftTypeOrder(a.shift_type) - getShiftTypeOrder(b.shift_type)
-      );
+    const groupedSlots = buildGroupedAvailableSlots({
+      availabilityRows,
+      slotRows,
+      chatterShiftRows: (chatterShiftData ?? []) as Pick<Shift, 'date' | 'start_time'>[],
+      occupancyRows: (occupancyData ?? []) as Pick<Shift, 'date' | 'start_time'>[],
+    });
 
     setAvailableSlots(groupedSlots);
     setLoadingSlots(false);
@@ -2061,10 +2013,10 @@ export function ChatterPage() {
                 <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
                   <div className="grid grid-cols-8 gap-2 min-w-[980px]">
                     <div className="text-center pb-2 border-b border-gray-700" />
-                    {weekDates.map((date, index) => (
+                    {weekDates.map((date) => (
                       <div key={date} className="text-center pb-2 border-b border-gray-700">
                         <p className="text-xs font-semibold mb-1 text-gray-400">
-                          {LABELS.days[index]}
+                          {getHebrewWeekdayLabel(date)}
                         </p>
                         <p className="text-sm font-bold text-gray-300">{formatHebrewShortDate(date)}</p>
                       </div>

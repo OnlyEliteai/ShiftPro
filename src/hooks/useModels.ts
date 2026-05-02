@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Model } from '../lib/types';
+import { getIsraelDateKey } from '../lib/utils';
 
 export function useModels() {
   const [models, setModels] = useState<Model[]>([]);
@@ -73,7 +74,7 @@ export function useModels() {
       if (!model) return { error: 'מודל לא נמצא' };
 
       // Check for future shifts referencing this model name
-      const today = new Date().toISOString().split('T')[0];
+      const today = getIsraelDateKey();
       const { data: futureShifts } = await supabase
         .from('shifts')
         .select('id')

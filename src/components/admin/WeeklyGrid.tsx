@@ -7,6 +7,7 @@ import {
   formatDateNumeric,
   formatTime,
   getHebrewWeekdayLabel,
+  getIsraelDateKey,
   getWeekDates,
 } from '../../lib/utils';
 import { StatusBadge } from '../shared/StatusBadge';
@@ -300,7 +301,7 @@ export function WeeklyGrid({
 
   // Determine if a date is today
   function isToday(dateStr: string) {
-    return dateStr === new Date().toISOString().split('T')[0];
+    return dateStr === getIsraelDateKey();
   }
 
   return (

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import type { Chatter, Model, Platform, Shift } from '../../lib/types';
-import { LABELS } from '../../lib/utils';
+import { LABELS, getIsraelDateKey } from '../../lib/utils';
+import { getShiftWindowEditAssignments } from '../../lib/shiftWindowEditing';
 
 interface ShiftCombination {
   model_id: string;
@@ -74,45 +75,7 @@ export function ShiftEditor({
 
   const existingAssignments = useMemo<ShiftCombination[]>(() => {
     if (!shift) return [];
-
-    const matchingRows = existingShifts.filter((s) => s.id === shift.id);
-    const siblings = matchingRows.length > 0 ? matchingRows : [shift];
-
-    const assignments: ShiftCombination[] = [];
-    const seen = new Set<string>();
-
-    for (const sibling of siblings) {
-      if (sibling.shift_assignments && sibling.shift_assignments.length > 0) {
-        for (const assignment of sibling.shift_assignments) {
-          if (!assignment.model_id) continue;
-          const key = `${assignment.model_id}|${assignment.platform}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          assignments.push({
-            model_id: assignment.model_id as string,
-            model: assignment.model,
-            platform: assignment.platform,
-          });
-        }
-        continue;
-      }
-
-      if (sibling.model && sibling.platform) {
-        const resolvedModelId =
-          sibling.model_id ?? models.find((model) => model.name === sibling.model)?.id ?? '';
-        if (!resolvedModelId) continue;
-        const key = `${resolvedModelId}|${sibling.platform}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        assignments.push({
-          model_id: resolvedModelId,
-          model: sibling.model,
-          platform: sibling.platform,
-        });
-      }
-    }
-
-    return assignments;
+    return getShiftWindowEditAssignments(existingShifts, shift, models);
   }, [shift, existingShifts, models]);
 
   const initialSelectedModelIds = useMemo(
@@ -127,7 +90,7 @@ export function ShiftEditor({
 
   const [form, setForm] = useState<ShiftFormData>({
     chatter_id: shift?.chatter_id ?? (chatters[0]?.id ?? ''),
-    date: shift?.date ?? date ?? availableDates[0] ?? new Date().toISOString().split('T')[0],
+    date: shift?.date ?? date ?? availableDates[0] ?? getIsraelDateKey(),
     shift_type: inferredShiftType,
     start_time: shift?.start_time ?? getTimesByType(inferredShiftType).start_time,
     end_time: shift?.end_time ?? getTimesByType(inferredShiftType).end_time,

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { LABELS, formatDateNumeric, getHebrewWeekdayLabel, getWeekDates } from '../utils';
+import {
+  LABELS,
+  formatDateNumeric,
+  getHebrewWeekdayLabel,
+  getIsraelDateKey,
+  getRelativeIsraelDateKey,
+  getWeekDates,
+} from '../utils';
 
 describe('date utilities', () => {
   const israelSundayAfterMidnight = new Date('2026-05-03T00:30:00+03:00');
@@ -35,5 +42,10 @@ describe('date utilities', () => {
 
   it('formats date-only keys as numeric day and month without timezone shifts', () => {
     expect(formatDateNumeric('2026-05-09')).toBe('9.5');
+  });
+
+  it('builds Israel-local date keys for today and relative dates', () => {
+    expect(getIsraelDateKey(israelSundayAfterMidnight)).toBe('2026-05-03');
+    expect(getRelativeIsraelDateKey(-30, israelSundayAfterMidnight)).toBe('2026-04-03');
   });
 });

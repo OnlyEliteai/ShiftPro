@@ -264,6 +264,18 @@ function getIsraelDateParts(date: Date) {
   };
 }
 
+export function getIsraelDateKey(baseDate = new Date()): string {
+  const today = getIsraelDateParts(baseDate);
+  return toDateKey(today.year, today.month, today.day);
+}
+
+export function getRelativeIsraelDateKey(offsetDays: number, baseDate = new Date()): string {
+  const today = getIsraelDateParts(baseDate);
+  const target = new Date(Date.UTC(today.year, today.month - 1, today.day));
+  target.setUTCDate(target.getUTCDate() + offsetDays);
+  return toDateKey(target.getUTCFullYear(), target.getUTCMonth() + 1, target.getUTCDate());
+}
+
 export function formatDate(date: string): string {
   return new Intl.DateTimeFormat('he-IL', {
     timeZone: ISRAEL_TIMEZONE,

@@ -21,7 +21,7 @@ const Analytics = lazy(() => import('../components/admin/Analytics').then(m => (
 import { LoadingSpinner } from '../components/shared/LoadingSpinner';
 import { ToastContainer } from '../components/shared/ToastContainer';
 import type { Platform, Shift, ShiftWithChatter } from '../lib/types';
-import { LABELS, getWeekDates } from '../lib/utils';
+import { LABELS, getIsraelDateKey, getRelativeIsraelDateKey, getWeekDates } from '../lib/utils';
 import { SUPABASE_URL, supabase } from '../lib/supabase';
 import { isAdminPreviewMode } from '../lib/previewMode';
 
@@ -140,11 +140,8 @@ export function AdminPage() {
     [visibleShifts]
   );
   const dashboardStats = useMemo(() => {
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const thirtyDaysAgoDate = new Date(now);
-    thirtyDaysAgoDate.setDate(now.getDate() - 30);
-    const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().split('T')[0];
+    const today = getIsraelDateKey();
+    const thirtyDaysAgo = getRelativeIsraelDateKey(-30);
 
     const totalChatters = visibleChatters.filter((chatter) => chatter.active).length;
     const currentlyOnShift = visibleShifts.filter(
