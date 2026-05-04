@@ -8,12 +8,6 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-type ShiftRow = {
-  id: string;
-  date: string;
-  start_time: string;
-};
-
 function response(body: Record<string, unknown>, status: number) {
   return new Response(JSON.stringify(body), { status, headers: CORS_HEADERS });
 }
@@ -46,56 +40,6 @@ Deno.serve(async (req: Request) => {
 
     if (chatterError || !chatter) {
       return response({ success: false, error: "Invalid token" }, 401);
-    }
-
-    const { data: completedShifts, error: completedError } = await supabase
-      .from("shifts")
-      .select("id, date, start_time")
-      .eq("chatter_id", chatter.id)
-      .eq("status", "completed")
-      .order("date", { ascending: false })
-      .order("start_time", { ascending: false })
-      .limit(25);
-
-    if (completedError) throw completedError;
-
-    if (completedShifts && completedShifts.length > 0) {
-      const { data: existingSummaries, error: summariesError } = await supabase
-        .from("daily_summaries")
-        .select("shift_id")
-        .eq("chatter_id", chatter.id);
-
-      if (summariesError) throw summariesError;
-
-      const summarizedIds = new Set(
-        (existingSummaries || []).map((summary: { shift_id: string | null }) => summary.shift_id)
-      );
-      const groups = new Map<string, ShiftRow[]>();
-
-      for (const shift of completedShifts as ShiftRow[]) {
-        const key = `${shift.date}|${shift.start_time}`;
-        const group = groups.get(key) ?? [];
-        group.push(shift);
-        groups.set(key, group);
-      }
-
-      for (const group of groups.values()) {
-        const hasSummary = group.some((shift) => summarizedIds.has(shift.id));
-        if (!hasSummary) {
-          const debtShift = group[0];
-          return response(
-            {
-              success: false,
-              error: "SUMMARY_DEBT",
-              debt_shift_id: debtShift.id,
-              debt_shift_date: debtShift.date,
-              debt_shift_start_time: debtShift.start_time,
-              message: `יש לך סיכום משמרת חסר מתאריך ${debtShift.date}. נא למלא את הסיכום לפני כניסה למשמרת חדשה.`,
-            },
-            403
-          );
-        }
-      }
     }
 
     const { data: requestedShift, error: shiftError } = await supabase

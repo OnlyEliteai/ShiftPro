@@ -226,7 +226,7 @@ interface ShiftSlotAvailabilityRow {
   occupied: number;
 }
 
-type SummaryModalSource = 'clock_out' | 'past' | 'debt' | 'manual';
+type SummaryModalSource = 'clock_out' | 'past' | 'manual';
 
 interface ShiftWindow<T extends Shift = Shift> {
   key: string;
@@ -526,7 +526,6 @@ export function ChatterPage() {
   const [pastShifts, setPastShifts] = useState<Shift[]>([]);
   const [loadingPastShifts, setLoadingPastShifts] = useState(false);
   const [summaryShiftIds, setSummaryShiftIds] = useState<Set<string>>(new Set());
-  const [debtShiftWindow, setDebtShiftWindow] = useState<ShiftWindow | null>(null);
   const [availableSlots, setAvailableSlots] = useState<GroupedAvailableSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotActionId, setSlotActionId] = useState<string | null>(null);
@@ -551,7 +550,6 @@ export function ChatterPage() {
     activeShift?.clocked_in
       ? formatElapsedDuration(activeShift.clocked_in, currentTimestamp)
       : '';
-  const debtShift = debtShiftWindow?.first ?? null;
   const nextShiftWindow = nextShiftSiblings.length > 0 ? createShiftWindow(nextShiftSiblings) : null;
   const activeShiftWindow = activeShiftSiblings.length > 0 ? createShiftWindow(activeShiftSiblings) : null;
   const weeklyShiftWindows = useMemo(() => groupShiftWindows(weeklyShifts), [weeklyShifts]);
@@ -662,42 +660,6 @@ export function ChatterPage() {
     }
   }, [chatter, manualSummaryDateInput, openManualSummary, previewData, previewMode]);
 
-  const fetchShiftById = useCallback(
-    async (shiftId: string) => {
-      if (!chatter) return null;
-
-      const { data, error: shiftError } = await supabase
-        .from('shifts')
-        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
-        .eq('id', shiftId)
-        .eq('chatter_id', chatter.id)
-        .maybeSingle();
-
-      if (shiftError || !data) return null;
-      return data as Shift;
-    },
-    [chatter]
-  );
-
-  const fetchShiftWindowById = useCallback(
-    async (shiftId: string) => {
-      const shift = await fetchShiftById(shiftId);
-      if (!shift || !chatter) return null;
-
-      const { data, error: siblingsError } = await supabase
-        .from('shifts')
-        .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
-        .eq('chatter_id', chatter.id)
-        .eq('date', shift.date)
-        .eq('start_time', shift.start_time)
-        .order('created_at', { ascending: true });
-
-      if (siblingsError || !data || data.length === 0) return createShiftWindow([shift]);
-      return createShiftWindow(data as Shift[]);
-    },
-    [chatter, fetchShiftById]
-  );
-
   const fetchPastShiftsData = useCallback(async () => {
     if (!chatter) return;
     setLoadingPastShifts(true);
@@ -732,50 +694,6 @@ export function ChatterPage() {
     setPastShifts((pastRes.data ?? []) as Shift[]);
     setSummaryShiftIds(filledShiftIds);
     setLoadingPastShifts(false);
-  }, [chatter, showToast]);
-
-  const fetchDebtShift = useCallback(async () => {
-    if (!chatter) return;
-
-    const { data: completedShifts, error: latestShiftError } = await supabase
-      .from('shifts')
-      .select(SHIFT_SELECT_WITH_ASSIGNMENTS)
-      .eq('chatter_id', chatter.id)
-      .eq('status', 'completed')
-      .order('date', { ascending: false })
-      .order('start_time', { ascending: false })
-      .limit(25);
-
-    if (latestShiftError) {
-      showToast('error', LABELS.noConnection);
-      return;
-    }
-
-    if (!completedShifts || completedShifts.length === 0) {
-      setDebtShiftWindow(null);
-      return;
-    }
-
-    const { data: summaries, error: summaryError } = await supabase
-      .from('daily_summaries')
-      .select('shift_id')
-      .eq('chatter_id', chatter.id);
-
-    if (summaryError) {
-      showToast('error', LABELS.noConnection);
-      return;
-    }
-
-    const summarizedIds = new Set(
-      ((summaries ?? []) as Array<{ shift_id: string | null }>)
-        .map((summary) => summary.shift_id)
-        .filter((shiftId): shiftId is string => Boolean(shiftId))
-    );
-    const debtWindow =
-      groupShiftWindows((completedShifts ?? []) as Shift[])
-        .find((window) => !windowHasSummary(window, summarizedIds)) ?? null;
-
-    setDebtShiftWindow(debtWindow);
   }, [chatter, showToast]);
 
   const fetchShiftData = useCallback(async () => {
@@ -1141,7 +1059,6 @@ export function ChatterPage() {
     setActiveShiftSiblings(activeWindow?.shifts ?? []);
     setPastShifts(ownShifts.filter((shift) => ['completed', 'missed'].includes(shift.status)));
     setSummaryShiftIds(new Set());
-    setDebtShiftWindow(null);
     setModels(previewModels);
     setMonthlyGoal(12_000);
     setMonthlyEarned(4_275);
@@ -1199,7 +1116,6 @@ export function ChatterPage() {
       if (active) {
         void fetchShiftData();
         void fetchPastShiftsData();
-        void fetchDebtShift();
         void fetchSharedScheduleData();
         void fetchModels();
         void fetchMonthlyProgress();
@@ -1214,7 +1130,6 @@ export function ChatterPage() {
     chatter,
     fetchShiftData,
     fetchPastShiftsData,
-    fetchDebtShift,
     fetchSharedScheduleData,
     fetchModels,
     fetchMonthlyProgress,
@@ -1233,7 +1148,6 @@ export function ChatterPage() {
         () => {
           void fetchShiftData();
           void fetchPastShiftsData();
-          void fetchDebtShift();
           void fetchAvailableSlots();
         }
       )
@@ -1255,7 +1169,6 @@ export function ChatterPage() {
         () => {
           void fetchMonthlyProgress();
           void fetchPastShiftsData();
-          void fetchDebtShift();
         }
       )
       .on(
@@ -1273,7 +1186,6 @@ export function ChatterPage() {
     chatter,
     fetchShiftData,
     fetchPastShiftsData,
-    fetchDebtShift,
     fetchSharedScheduleData,
     fetchMonthlyProgress,
     fetchAvailableSlots,
@@ -1307,22 +1219,9 @@ export function ChatterPage() {
             error?: string;
             success?: boolean;
             message?: string;
-            debt_shift_id?: string;
           })
       );
       if (!response.ok || payload.success === false) {
-        if (payload.error === 'SUMMARY_DEBT') {
-          if (payload.debt_shift_id) {
-            const latestDebtWindow = await fetchShiftWindowById(payload.debt_shift_id);
-            if (latestDebtWindow) {
-              setDebtShiftWindow(latestDebtWindow);
-              return;
-            }
-          }
-          await fetchDebtShift();
-          return;
-        }
-
         showToast('error', mapClockInErrorMessage(response.status, payload.error));
         return;
       }
@@ -1338,10 +1237,6 @@ export function ChatterPage() {
 
   async function handleSmartClockIn() {
     if (!chatter) return;
-    if (debtShift) {
-      if (debtShiftWindow) openSummaryModal(debtShiftWindow, 'debt');
-      return;
-    }
 
     const today = getIsraelTodayDateKey();
     const nowMinutes = getCurrentIsraelWallClockMinutes();
@@ -1447,14 +1342,12 @@ export function ChatterPage() {
     (type: 'success' | 'error' | 'warning' | 'info', message: string) => {
       const isRetroactive =
         summaryModalSource === 'past' ||
-        summaryModalSource === 'debt' ||
         summaryModalSource === 'manual';
       if (isRetroactive && type === 'error' && message === 'שגיאה ביציאה מהמשמרת') {
         closeSummaryModal();
         showToast('success', 'הסיכום נשלח בהצלחה!');
         void fetchMonthlyProgress();
         void fetchPastShiftsData();
-        void fetchDebtShift();
         return;
       }
 
@@ -1466,7 +1359,6 @@ export function ChatterPage() {
       showToast,
       fetchMonthlyProgress,
       fetchPastShiftsData,
-      fetchDebtShift,
     ]
   );
 
@@ -1572,20 +1464,6 @@ export function ChatterPage() {
               <h1 className="text-xl font-bold text-white truncate">היי {displayName}!</h1>
             </div>
           </section>
-
-          {debtShift && (
-            <section className="rounded-2xl border border-red-600/50 bg-red-900/20 p-4 space-y-3">
-              <p className="text-sm font-semibold text-red-200">
-                ⚠️ {LABELS.summaryDebtBanner} {formatHebrewShortDate(debtShift.date)}
-              </p>
-              <button
-                onClick={() => debtShiftWindow && openSummaryModal(debtShiftWindow, 'debt')}
-                className="w-full min-h-[44px] rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold"
-              >
-                {LABELS.fillSummaryNow}
-              </button>
-            </section>
-          )}
 
           <section className="rounded-2xl border border-gray-800 bg-gray-900 p-3 sm:p-4">
             <h2 className="text-base font-bold text-white mb-3">{LABELS.pastShifts}</h2>
@@ -1761,7 +1639,7 @@ export function ChatterPage() {
                 <ShiftWindowDetails window={nextShiftWindow} />
                 <button
                   onClick={handleSmartClockIn}
-                  disabled={Boolean(actionShiftId) || Boolean(activeShift) || Boolean(debtShift)}
+                  disabled={Boolean(actionShiftId) || Boolean(activeShift)}
                   className="w-full min-h-[48px] rounded-xl bg-[#1D9E75] hover:bg-[#188561] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold"
                 >
                   {actionShiftId ? LABELS.connecting : LABELS.clockIn}
@@ -2144,7 +2022,6 @@ export function ChatterPage() {
             await fetchShiftData();
             await fetchMonthlyProgress();
             await fetchPastShiftsData();
-            await fetchDebtShift();
           }}
           showToast={showSummaryModalToast}
         />
